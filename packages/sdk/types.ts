@@ -305,41 +305,43 @@ export interface TestContext {
    * Use `.orFail()` to guard assertions where subsequent code depends on the result.
    * Use `.not` to negate any assertion.
    *
-   * **Tip — readable failure messages**: The auto-generated message includes the
-   * actual and expected values (e.g. `"expected 401 to be 200"`). To add business
-   * context, use `ctx.assert` with a descriptive message for critical checks, or
-   * use `.toSatisfy(predicate, label)` for a labeled predicate assertion.
+   * **Assertion messages**: Every matcher accepts an optional `message` string as
+   * its **last argument**. When provided, it is prepended to the auto-generated
+   * message, making failures far more actionable in Trace Viewer, CI, and MCP output.
    *
-   * @example Basic assertions
+   * **Always pass a message** that describes the request or business context —
+   * e.g. `"GET /users status"`, `"created order id"`, `"auth token format"`.
+   *
+   * @example With descriptive messages (recommended)
    * ```ts
-   * ctx.expect(res.status).toBe(200);
-   * ctx.expect(body.name).toBeType("string");
-   * ctx.expect(body.roles).toContain("admin");
+   * ctx.expect(res.status).toBe(200, "GET /users status");
+   * // on failure → "GET /users status: expected 401 to be 200"
+   *
+   * ctx.expect(body.items).toHaveLength(3, "search result count");
+   * ctx.expect(res).toHaveHeader("content-type", /json/, "response content type");
    * ```
    *
    * @example Guard — abort if this fails
    * ```ts
-   * ctx.expect(res.status).toBe(200).orFail();
+   * ctx.expect(res.status).toBe(200, "POST /orders").orFail();
    * const body = await res.json(); // safe — status was 200
+   * ```
+   *
+   * @example Without message (still works, less readable in reports)
+   * ```ts
+   * ctx.expect(res.status).toBe(200);
+   * ctx.expect(body.name).toBeType("string");
    * ```
    *
    * @example Negation
    * ```ts
-   * ctx.expect(body.banned).not.toBe(true);
+   * ctx.expect(body.banned).not.toBe(true, "user should not be banned");
    * ```
    *
    * @example HTTP-specific
    * ```ts
-   * ctx.expect(res).toHaveStatus(200);
-   * ctx.expect(res).toHaveHeader("content-type", /json/);
-   * ```
-   *
-   * @example Labeled predicate for custom context
-   * ```ts
-   * ctx.expect(res.status).toSatisfy(
-   *   (s) => s >= 200 && s < 300,
-   *   "GET /users should return 2xx",
-   * );
+   * ctx.expect(res).toHaveStatus(200, "GET /users");
+   * ctx.expect(res).toHaveHeader("content-type", /json/, "content type");
    * ```
    */
   expect<V>(actual: V): import("./expect.ts").Expectation<V>;

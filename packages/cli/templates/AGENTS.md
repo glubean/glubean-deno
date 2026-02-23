@@ -145,29 +145,34 @@ when using `ctx.http`.
 
 Soft-by-default: records failure but continues. Use `.orFail()` as a guard.
 
+Every matcher accepts an optional **message** as the last argument. Always pass a descriptive message — it makes
+failures actionable in Trace Viewer, CI, and MCP output.
+
 ```typescript
-// Soft — all run even if one fails
-ctx.expect(res.status).toBe(200);
-ctx.expect(body.name).toEqual("Alice");
-ctx.expect(body.roles).toContain("admin");
-ctx.expect(body).toMatchObject({ active: true });
+// With messages (recommended) — on failure: "GET /users status: expected 401 to be 200"
+ctx.expect(res.status).toBe(200, "GET /users status");
+ctx.expect(body.name).toEqual("Alice", "user name");
+ctx.expect(body.roles).toContain("admin", "user roles");
+ctx.expect(body).toMatchObject({ active: true }, "user active flag");
 
 // Negation
-ctx.expect(body.banned).not.toBe(true);
+ctx.expect(body.banned).not.toBe(true, "user should not be banned");
 
 // Guard — abort if this fails (e.g., before parsing body)
-ctx.expect(res.status).toBe(200).orFail();
+ctx.expect(res.status).toBe(200, "POST /orders").orFail();
 const body = await res.json(); // safe
 ```
 
 Available methods: `toBe`, `toEqual`, `toBeType`, `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeUndefined`, `toBeDefined`,
 `toBeGreaterThan`, `toBeLessThan`, `toBeWithin`, `toHaveLength`, `toContain`, `toMatch`, `toMatchObject`,
-`toHaveProperty`, `toSatisfy`, `toHaveStatus`, `toHaveHeader`.
+`toHaveProperty`, `toSatisfy`, `toHaveStatus`, `toHaveHeader`, `toHaveJsonBody`.
 
 ### ctx.assert — Low-level Assertion
 
+Always provide a descriptive message explaining what is being checked.
+
 ```typescript
-ctx.assert(res.status === 200, "Status should be 200", {
+ctx.assert(res.status === 200, "GET /users should return 200", {
   actual: res.status,
   expected: 200,
 });
