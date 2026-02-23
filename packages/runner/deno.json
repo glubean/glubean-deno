@@ -1,6 +1,6 @@
 {
   "name": "@glubean/runner",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "exports": "./mod.ts",
   "license": "MIT",
   "description": "Glubean Runner - Test executor with sandboxed Deno subprocess",

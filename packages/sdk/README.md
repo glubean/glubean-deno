@@ -170,6 +170,53 @@ export const { http, vars, secrets } = configure({
 All configured values are lazy and resolved at runtime, so they are safe at module top-level and safe for scanner
 imports.
 
+### Plugin activation
+
+Plugins support optional activation rules that control when the plugin is available. Plugin authors do not need to know
+about activation — it is entirely controlled by the caller.
+
+```typescript
+import { configure, definePlugin } from "@glubean/sdk";
+
+const secureApiPlugin = definePlugin((runtime) => {
+  const client = runtime.http.extend({
+    prefixUrl: runtime.requireVar("BASE_URL"),
+    headers: {
+      Authorization: `Bearer ${runtime.requireSecret("API_KEY")}`,
+    },
+  });
+
+  return {
+    getUsers: () => client.get("users").json(),
+    getInternalAudit: () => client.get("users/internal/audit").json(),
+  };
+});
+
+const { secureApi } = configure({
+  plugins: {
+    secureApi: {
+      factory: secureApiPlugin,
+      activation: {
+        tags: {
+          enable: ["auth"],
+          disable: ["no-auth"],
+        },
+        requests: {
+          include: [{ method: "GET", path: /^\/users/ }],
+          exclude: [{ path: /^\/users\/internal\// }],
+        },
+      },
+    },
+  },
+});
+```
+
+- `activation.tags.enable`: plugin is active only when at least one listed test tag matches
+- `activation.tags.disable`: plugin is inactive when any listed tag matches (higher priority than enable)
+- `activation.requests.include`: plugin HTTP calls are allowed only when request matches at least one rule
+- `activation.requests.exclude`: plugin HTTP calls are blocked when request matches any rule (higher priority than
+  include)
+
 Then use them in any test file:
 
 ```typescript
