@@ -8,10 +8,10 @@
  * @example
  * ```ts
  * try {
- *   const apiKey = ctx.vars.require("API_KEY");
+ *   const baseUrl = ctx.vars.require("BASE_URL");
  * } catch (err) {
  *   if (err instanceof GlubeanValidationError) {
- *     console.log(err.key);   // "API_KEY"
+ *     console.log(err.key);   // "BASE_URL"
  *     console.log(err.type);  // "var"
  *   }
  * }
@@ -76,6 +76,11 @@ export type ValidatorFn = (value: string) => boolean | string | void | null;
 
 /**
  * Provides safe access to environment variables for a test run.
+ * Use for non-sensitive configuration such as URLs, ports, regions, and feature flags.
+ *
+ * **For credentials (API keys, tokens, passwords), use {@link SecretsAccessor | ctx.secrets} instead.**
+ * Secrets are loaded from `.secrets` files, automatically redacted in traces, and never
+ * appear in logs or dashboards.
  *
  * Use `require` when a value must exist to avoid silent failures.
  *
@@ -106,8 +111,8 @@ export interface VarsAccessor {
    * const port = ctx.vars.require("PORT", (v) => !isNaN(Number(v)));
    *
    * @example With custom error message
-   * const key = ctx.vars.require("API_KEY", (v) =>
-   *   v.length >= 32 ? true : `must be at least 32 chars, got ${v.length}`
+   * const endpoint = ctx.vars.require("CALLBACK_URL", (v) =>
+   *   v.startsWith("https://") ? true : "must start with https://"
    * );
    */
   require(key: string, validate?: ValidatorFn): string;

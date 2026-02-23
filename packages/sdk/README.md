@@ -190,6 +190,9 @@ Every test function receives a `TestContext` with these capabilities:
 
 #### Environment Variables
 
+Use `ctx.vars` for non-sensitive configuration (URLs, ports, regions, feature flags). **For credentials (API keys,
+tokens, passwords), use `ctx.secrets` instead** — see [Secrets](#secrets) below.
+
 ```typescript
 // Safe access with explicit error handling
 const baseUrl = ctx.vars.require("BASE_URL"); // Throws if missing
@@ -200,7 +203,7 @@ const allVars = ctx.vars.all(); // Get all vars (for debugging)
 const port = ctx.vars.require("PORT", (v) => !isNaN(Number(v)));
 
 // With custom error message
-const apiKey = ctx.vars.require("API_KEY", (v) => v.length >= 32 ? true : `must be at least 32 chars, got ${v.length}`);
+const endpoint = ctx.vars.require("CALLBACK_URL", (v) => v.startsWith("https://") ? true : "must start with https://");
 ```
 
 #### Secrets

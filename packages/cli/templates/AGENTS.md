@@ -216,8 +216,9 @@ const res = await ctx.http.post(`${baseUrl}/users`, {
 
 ## Other ctx APIs
 
-- `ctx.vars.get(key)` / `ctx.vars.require(key)` — environment variables
-- `ctx.secrets.get(key)` / `ctx.secrets.require(key)` — secret values
+- `ctx.vars.get(key)` / `ctx.vars.require(key)` — non-sensitive config (URLs, ports, regions)
+- `ctx.secrets.get(key)` / `ctx.secrets.require(key)` — credentials (API keys, tokens, passwords). **Always use secrets
+  for sensitive values** — they are auto-redacted in traces and never appear in logs.
 - `ctx.fail(message)` — immediately abort test
 - `ctx.skip(reason)` — skip test
 - `ctx.log(message)` — structured log
