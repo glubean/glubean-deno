@@ -4,6 +4,8 @@
 .env.secrets
 .env.*.secrets
 .env.*.local
+!packages/mcp/testdata/simple-project/.env
+!packages/mcp/testdata/simple-project/.env.secrets
 
 # Test logs
 *.log
