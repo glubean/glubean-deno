@@ -120,7 +120,8 @@ export const createUser = test.pick({
 
 ## ctx.http Quick Reference
 
-`ctx.http` is a pre-configured HTTP client (powered by ky) with auto-tracing:
+`ctx.http` is a **thin wrapper around [ky](https://github.com/sindresorhus/ky)** with auto-tracing. All ky options are
+supported. **There is no `form` shortcut** — use `body: new URLSearchParams(...)` for form data.
 
 ```typescript
 // GET with JSON parsing
@@ -130,6 +131,15 @@ const users = await ctx.http.get(`${baseUrl}/users`).json();
 const created = await ctx.http
   .post(`${baseUrl}/users`, { json: { name: "test" } })
   .json();
+
+// POST with form-urlencoded data (e.g. OAuth token requests)
+const tokenRes = await ctx.http.post(`${authUrl}/token`, {
+  body: new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: ctx.secrets.require("CLIENT_ID"),
+    client_secret: ctx.secrets.require("CLIENT_SECRET"),
+  }),
+});
 
 // Scoped client with shared config
 const api = ctx.http.extend({ prefixUrl: baseUrl });
