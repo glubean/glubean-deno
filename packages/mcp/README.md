@@ -89,10 +89,45 @@ deno run -A jsr:@glubean/mcp
 - `glubean_open_get_run` — fetch remote run status
 - `glubean_open_get_run_events` — fetch remote run events
 
+## Improving AI tool selection (recommended)
+
+AI agents don't always pick the right MCP tool automatically. Adding a **cursor rule** dramatically improves hit rate.
+
+### Cursor
+
+Create `.cursor/rules/glubean.mdc` in your project root:
+
+```markdown
+# Glubean API Testing
+
+This project uses Glubean for API testing. When the user asks to run, debug, create, or fix API tests, use the Glubean
+MCP tools:
+
+- To run a test file: `glubean_run_local_file`
+- To list test files: `glubean_list_test_files`
+- To see test exports in a file: `glubean_discover_tests`
+- To check project config: `glubean_diagnose_config`
+- To review last run results: `glubean_get_last_run_summary` and `glubean_get_local_events`
+
+After running tests, read the structured assertion failures and fix the code. Then re-run to confirm the fix. Repeat
+until all tests pass.
+
+Test files live in `tests/` or `explore/` and use `@glubean/sdk`. Environment variables are in `.env`, secrets in
+`.env.secrets`.
+```
+
+### Windsurf
+
+Create `.windsurfrules` in your project root with similar content.
+
+### General tip
+
+If the AI doesn't trigger MCP tools, mention **"glubean"** explicitly in your prompt — e.g. "use glubean to run the
+test" instead of just "run the test".
+
 ## Talking to your AI
 
-Once configured, you can interact with the MCP tools using natural language. The AI agent will automatically pick the
-right tool based on your prompt. Here are common scenarios:
+Once configured (especially with the rule above), you can interact using natural language. Here are common scenarios:
 
 ### Generate and run a test
 
