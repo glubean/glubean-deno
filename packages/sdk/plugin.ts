@@ -8,7 +8,7 @@
  *
  * @example
  * ```ts
- * import { definePlugin } from "@glubean/sdk/plugin";
+ * import { definePlugin } from "@glubean/sdk";
  *
  * export const myPlugin = (opts: MyOptions) =>
  *   definePlugin((runtime) => {

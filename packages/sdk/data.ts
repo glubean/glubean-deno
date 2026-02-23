@@ -214,7 +214,7 @@ export interface FromCsvOptions {
  *
  * export const tests = test.each(await fromCsv("./data/cases.csv"))
  *   ("case-$index-$country", async (ctx, row) => {
- *     const res = await ctx.http.get(`${baseUrl}/users/${row.id}`);
+ *     const res = await ctx.http.get(`${ctx.vars.require("BASE_URL")}/users/${row.id}`);
  *     ctx.assert(res.status === row.expected, "status check");
  *   });
  * ```
@@ -451,7 +451,7 @@ export interface FromDirConcatOptions extends FromDirOptions {
  * import { test, fromDir } from "@glubean/sdk";
  * export const tests = test.each(await fromDir("./cases/"))
  *   ("case-$_name", async (ctx, row) => {
- *     const res = await ctx.http.get(`${baseUrl}/users/${row.id}`);
+ *     const res = await ctx.http.get(`${ctx.vars.require("BASE_URL")}/users/${row.id}`);
  *     ctx.assert(res.status === row.expected, "status check");
  *   });
  * ```

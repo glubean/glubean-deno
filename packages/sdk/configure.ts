@@ -16,11 +16,11 @@
  * import { test, configure } from "@glubean/sdk";
  *
  * const { vars, secrets, http } = configure({
- *   vars: { baseUrl: "base_url" },
- *   secrets: { apiKey: "api_key" },
+ *   vars: { baseUrl: "BASE_URL" },
+ *   secrets: { apiKey: "API_KEY" },
  *   http: {
- *     prefixUrl: "base_url",
- *     headers: { Authorization: "Bearer {{api_key}}" },
+ *     prefixUrl: "BASE_URL",
+ *     headers: { Authorization: "Bearer {{API_KEY}}" },
  *   },
  * });
  *
@@ -35,8 +35,8 @@
  * // tests/configure.ts
  * import { configure } from "@glubean/sdk";
  * export const { vars, secrets, http } = configure({
- *   vars: { baseUrl: "base_url" },
- *   http: { prefixUrl: "base_url" },
+ *   vars: { baseUrl: "BASE_URL" },
+ *   http: { prefixUrl: "BASE_URL" },
  * });
  *
  * // tests/users.test.ts

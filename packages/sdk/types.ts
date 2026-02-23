@@ -11,8 +11,7 @@
  *   const baseUrl = ctx.vars.require("BASE_URL");
  * } catch (err) {
  *   if (err instanceof GlubeanValidationError) {
- *     console.log(err.key);   // "BASE_URL"
- *     console.log(err.type);  // "var"
+ *     ctx.log(`Missing ${err.type}: ${err.key}`);
  *   }
  * }
  * ```
@@ -119,19 +118,22 @@ export interface VarsAccessor {
 
   /**
    * Returns a copy of all vars for diagnostics or logging.
-   * Avoid logging secrets in production.
+   * Vars contain only non-sensitive config, so this is safe to log.
    *
    * @example
-   * const allVars = ctx.vars.all();
+   * ctx.log("Config", ctx.vars.all());
    */
   all(): Record<string, string>;
 }
 
 /**
- * Provides safe access to secrets for a test run.
+ * Provides safe access to secrets (API keys, tokens, passwords) for a test run.
  *
- * Secrets are injected securely and should never be logged in production.
- * Use `require` when a secret must exist to avoid silent failures.
+ * Secrets are loaded from `.secrets` files, automatically redacted in traces
+ * and logs, and never appear in dashboards. Use `require` when a secret must
+ * exist to avoid silent failures.
+ *
+ * **For non-sensitive config (URLs, ports, flags), use {@link VarsAccessor | ctx.vars} instead.**
  *
  * @example
  * const apiKey = ctx.secrets.require("API_KEY");
@@ -168,6 +170,31 @@ export interface SecretsAccessor {
  * The context passed to every test function.
  * Provides access to environment variables, secrets, logging, assertions, API tracing,
  * and a pre-configured HTTP client.
+ *
+ * @example Typical test using ctx
+ * ```ts
+ * export const getUsers = test("get-users", async (ctx) => {
+ *   const baseUrl = ctx.vars.require("BASE_URL");
+ *   const apiKey = ctx.secrets.require("API_KEY");
+ *
+ *   const res = await ctx.http.get(`${baseUrl}/users`, {
+ *     headers: { Authorization: `Bearer ${apiKey}` },
+ *   });
+ *   ctx.expect(res).toHaveStatus(200);
+ *
+ *   const body = await res.json();
+ *   ctx.expect(body.users).toHaveLength(10);
+ * });
+ * ```
+ *
+ * @example Anti-pattern: don't use vars for credentials
+ * ```ts
+ * // ❌ BAD: credential in vars — visible in traces and dashboards
+ * const apiKey = ctx.vars.require("API_KEY");
+ *
+ * // ✅ GOOD: credential in secrets — auto-redacted in traces
+ * const apiKey = ctx.secrets.require("API_KEY");
+ * ```
  */
 export interface TestContext {
   /** Environment variables accessor (e.g., BASE_URL) */
@@ -437,12 +464,13 @@ export interface TestContext {
    *
    * @example Fail if a request that should error succeeds
    * ```ts
-   * try {
-   *   await ctx.http.delete(`${baseUrl}/protected`);
+   * const res = await ctx.http.delete(`${ctx.vars.require("BASE_URL")}/protected`, {
+   *   throwHttpErrors: false,
+   * });
+   * if (res.ok) {
    *   ctx.fail("Expected 403 but request succeeded");
-   * } catch (e) {
-   *   ctx.assert(e.response.status === 403, "Should be forbidden");
    * }
+   * ctx.expect(res.status).toBe(403);
    * ```
    *
    * @example Guard against unreachable code
@@ -511,7 +539,7 @@ export interface TestContext {
    * @example Increase timeout for slow endpoint
    * ```ts
    * ctx.setTimeout(60000); // 60 seconds
-   * const res = await fetch(ctx.vars.require("SLOW_API_URL"));
+   * const res = await ctx.http.get(ctx.vars.require("SLOW_API_URL"));
    * ```
    *
    * @example Set timeout based on environment
@@ -546,7 +574,7 @@ export interface TestContext {
    * @example Different behavior on retry
    * ```ts
    * const timeout = ctx.retryCount === 0 ? 5000 : 10000;
-   * const res = await fetch(url, { signal: AbortSignal.timeout(timeout) });
+   * const res = await ctx.http.get(url, { timeout });
    * ```
    */
   readonly retryCount: number;
@@ -607,11 +635,11 @@ export interface TestContext {
  * @example
  * ```ts
  * const { vars, secrets, http } = configure({
- *   vars: { baseUrl: "base_url", orgId: "org_id" },
- *   secrets: { apiKey: "api_key" },
+ *   vars: { baseUrl: "BASE_URL", orgId: "ORG_ID" },
+ *   secrets: { apiKey: "API_KEY" },
  *   http: {
- *     prefixUrl: "base_url",
- *     headers: { Authorization: "Bearer {{api_key}}" },
+ *     prefixUrl: "BASE_URL",
+ *     headers: { Authorization: "Bearer {{API_KEY}}" },
  *   },
  * });
  * ```
@@ -625,7 +653,7 @@ export interface ConfigureOptions {
    * @example
    * ```ts
    * const { vars } = configure({
-   *   vars: { baseUrl: "base_url", orgId: "org_id" },
+   *   vars: { baseUrl: "BASE_URL", orgId: "ORG_ID" },
    * });
    * vars.baseUrl; // string (required, never undefined)
    * ```
@@ -640,7 +668,7 @@ export interface ConfigureOptions {
    * @example
    * ```ts
    * const { secrets } = configure({
-   *   secrets: { apiKey: "api_key" },
+   *   secrets: { apiKey: "API_KEY" },
    * });
    * secrets.apiKey; // string (required, never undefined)
    * ```
@@ -707,7 +735,7 @@ export interface ConfigureHttpOptions {
    * Var key whose runtime value is used as the base URL (ky `prefixUrl`).
    * This is a var key name, not the URL itself.
    *
-   * @example "base_url" → resolved to ctx.vars.require("base_url")
+   * @example "BASE_URL" → resolved to ctx.vars.require("BASE_URL")
    */
   prefixUrl?: string;
 
@@ -718,8 +746,8 @@ export interface ConfigureHttpOptions {
    * @example
    * ```ts
    * headers: {
-   *   Authorization: "Bearer {{api_key}}",
-   *   "X-Org-Id": "{{org_id}}",
+   *   Authorization: "Bearer {{API_KEY}}",
+   *   "X-Org-Id": "{{ORG_ID}}",
    * }
    * ```
    */
@@ -780,6 +808,21 @@ export interface ConfigureHttpOptions {
  *
  * @template V Shape of the vars object (inferred from `ConfigureOptions.vars`)
  * @template S Shape of the secrets object (inferred from `ConfigureOptions.secrets`)
+ *
+ * @example
+ * ```ts
+ * const { vars, secrets, http } = configure({
+ *   vars: { baseUrl: "BASE_URL" },
+ *   secrets: { apiKey: "API_KEY" },
+ *   http: { prefixUrl: "BASE_URL", headers: { Authorization: "Bearer {{API_KEY}}" } },
+ * });
+ *
+ * export const myTest = test("my-test", async (ctx) => {
+ *   ctx.log(`Using ${vars.baseUrl}`);
+ *   const res = await http.get("users").json();
+ *   ctx.expect(res.length).toBeGreaterThan(0);
+ * });
+ * ```
  */
 export interface ConfigureResult<
   V extends Record<string, string> = Record<string, string>,
@@ -1111,7 +1154,7 @@ export interface HttpClient {
    * ```ts
    * const api = ctx.http.extend({
    *   prefixUrl: ctx.vars.require("BASE_URL"),
-   *   headers: { Authorization: `Bearer ${token}` },
+   *   headers: { Authorization: `Bearer ${ctx.secrets.require("API_TOKEN")}` },
    * });
    * const users = await api.get("users").json();
    * const user = await api.get("users/1").json();
@@ -1222,6 +1265,14 @@ export interface HttpSchemaOptions {
 
 /**
  * Details for assertion (actual/expected values).
+ *
+ * @example
+ * ```ts
+ * ctx.assert(res.status === 200, "Expected 200", {
+ *   actual: res.status,
+ *   expected: 200,
+ * });
+ * ```
  */
 export interface AssertionDetails {
   actual?: unknown;
@@ -1230,6 +1281,15 @@ export interface AssertionDetails {
 
 /**
  * Input for explicit assertion result object.
+ *
+ * @example
+ * ```ts
+ * ctx.assertResult({
+ *   passed: res.status === 200,
+ *   actual: res.status,
+ *   expected: 200,
+ * });
+ * ```
  */
 export interface AssertionResultInput {
   passed: boolean;
@@ -1239,6 +1299,14 @@ export interface AssertionResultInput {
 
 /**
  * Options for metric reporting.
+ *
+ * @example
+ * ```ts
+ * ctx.metric("api_latency", duration, {
+ *   unit: "ms",
+ *   tags: { endpoint: "/users", method: "GET" },
+ * });
+ * ```
  */
 export interface MetricOptions {
   /** Display unit (e.g., "ms", "bytes", "count", "%") */
@@ -1267,6 +1335,21 @@ export interface PollUntilOptions {
 
 /**
  * API trace data for network call reporting.
+ * Usually auto-generated by `ctx.http` — only use `ctx.trace()` directly
+ * for non-HTTP calls (e.g., gRPC, WebSocket) or custom instrumentation.
+ *
+ * @example Manual trace for a non-HTTP call
+ * ```ts
+ * const start = Date.now();
+ * const result = await grpcClient.getUser({ id: 1 });
+ * ctx.trace({
+ *   name: "gRPC GetUser",
+ *   method: "gRPC",
+ *   url: "user-service:50051/GetUser",
+ *   status: result.ok ? 200 : 500,
+ *   duration: Date.now() - start,
+ * });
+ * ```
  */
 export interface ApiTrace {
   /** Optional human-readable name to quickly identify the API (e.g., "Create User", "Get Orders") */
@@ -1410,8 +1493,10 @@ export type SimpleTestFunction = (ctx: TestContext) => Promise<void>;
  * ```ts
  * const fn: EachTestFunction<{ id: number; expected: number }> =
  *   async (ctx, { id, expected }) => {
- *     const res = await fetch(`${ctx.vars.require("BASE_URL")}/users/${id}`);
- *     ctx.assert(res.status === expected, `status for id=${id}`);
+ *     const res = await ctx.http.get(`${ctx.vars.require("BASE_URL")}/users/${id}`, {
+ *       throwHttpErrors: false,
+ *     });
+ *     ctx.expect(res.status).toBe(expected);
  *   };
  * ```
  */

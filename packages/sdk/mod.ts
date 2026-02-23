@@ -148,7 +148,11 @@ export class TestBuilder<S = unknown, Ctx extends TestContext = TestContext> {
    * ```ts
    * test("auth")
    *   .setup(async (ctx) => {
-   *     const token = await login(ctx.vars.require("USER"));
+   *     const baseUrl = ctx.vars.require("BASE_URL");
+   *     const apiKey = ctx.secrets.require("API_KEY");
+   *     const { token } = await ctx.http.post(`${baseUrl}/auth/token`, {
+   *       headers: { "X-API-Key": apiKey },
+   *     }).json();
    *     return { token };
    *   })
    *   .step("verify", async (ctx, { token }) => { ... })
@@ -402,7 +406,7 @@ export class TestBuilder<S = unknown, Ctx extends TestContext = TestContext> {
  * import { test } from "@glubean/sdk";
  *
  * export const login = test("login", async (ctx) => {
- *   const res = await fetch(ctx.vars.require("BASE_URL") + "/login");
+ *   const res = await ctx.http.get(`${ctx.vars.require("BASE_URL")}/login`);
  *   ctx.assert(res.ok, "Login should succeed");
  * });
  * ```
@@ -544,7 +548,7 @@ export type EachStepFunction<S, T, Ctx extends TestContext = TestContext> = (
  * ```ts
  * const setupFn: EachSetupFunction<{ api: HttpClient }, { env: string }> =
  *   async (ctx, row) => {
- *     const api = ctx.http.extend({ baseUrl: row.env });
+ *     const api = ctx.http.extend({ prefixUrl: row.env });
  *     return { api };
  *   };
  * ```
@@ -955,8 +959,10 @@ export class EachBuilder<
  *   { id: 1, expected: 200 },
  *   { id: 999, expected: 404 },
  * ])("get-user-$id", async (ctx, { id, expected }) => {
- *   const res = await fetch(`${ctx.vars.require("BASE_URL")}/users/${id}`);
- *   ctx.assert(res.status === expected, `status for id=${id}`);
+ *   const res = await ctx.http.get(`${ctx.vars.require("BASE_URL")}/users/${id}`, {
+ *     throwHttpErrors: false,
+ *   });
+ *   ctx.expect(res.status).toBe(expected);
  * });
  * ```
  *
