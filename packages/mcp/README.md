@@ -89,6 +89,54 @@ deno run -A jsr:@glubean/mcp
 - `glubean_open_get_run` — fetch remote run status
 - `glubean_open_get_run_events` — fetch remote run events
 
+## Talking to your AI
+
+Once configured, you can interact with the MCP tools using natural language. The AI agent will automatically pick the
+right tool based on your prompt. Here are common scenarios:
+
+### Generate and run a test
+
+> "Write an API test for GET /users that checks status 200 and validates the response has an array of users. Run it."
+
+The agent will create a test file, then call `glubean_run_local_file` to execute it. If assertions fail, it sees the
+structured failures and can fix the code automatically.
+
+### Debug a failing test
+
+> "Run tests/users.test.ts and tell me what's failing."
+
+Triggers `glubean_run_local_file` → the agent reads assertion results, traces, and logs to explain the failure.
+
+### Check project setup
+
+> "Is my Glubean project configured correctly?"
+
+Triggers `glubean_diagnose_config` → returns missing `.env` vars, missing `deno.json`, or missing test directories with
+fix suggestions.
+
+### Explore existing tests
+
+> "What tests do we have? Show me all test files."
+
+Triggers `glubean_list_test_files` → lists all test files in the project.
+
+> "What test cases are in tests/orders.test.ts?"
+
+Triggers `glubean_discover_tests` → lists every exported `test` in that file with names and tags.
+
+### Iterate on failures
+
+> "The /orders endpoint now returns 201 instead of 200. Update the test and re-run."
+
+The agent edits the test file, calls `glubean_run_local_file` again, and confirms all assertions pass. This is the core
+AI loop — write, run, see facts, fix, repeat.
+
+### Check the last run
+
+> "What happened in the last test run? Show me the assertions."
+
+Triggers `glubean_get_last_run_summary` and `glubean_get_local_events` to return structured results without re-running.
+
 ## Notes
 
 - This is a **stdio** transport server. It must not write to stdout except MCP JSON-RPC messages.
