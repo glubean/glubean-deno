@@ -250,11 +250,30 @@ export interface TestContext {
   log(message: string, data?: unknown): void;
 
   /**
-   * Assertion reporting - streams to runner stdout.
+   * Low-level assertion — records a pass/fail event in the test trace.
+   *
+   * **Always provide a descriptive `message`** that explains *what* is being
+   * checked and *why* it matters. Generic messages like `"status check"` are
+   * unhelpful in dashboards, CI logs, and MCP tool output. Good messages read
+   * like a sentence: `"GET /users should return 200"`.
+   *
+   * Prefer `ctx.expect` for most assertions (fluent, auto-generates actual/expected).
+   * Use `ctx.assert` when you need a simple boolean guard with a custom message.
    *
    * Overload 1: Simple boolean check
-   * @example ctx.assert(res.ok, "API should return 200")
-   * @example ctx.assert(res.status === 200, "Status check", { actual: res.status, expected: 200 })
+   *
+   * @example Good — descriptive message
+   * ```ts
+   * ctx.assert(res.ok, "GET /users should return 2xx");
+   * ctx.assert(body.items.length > 0, "Response should contain at least one item");
+   * ctx.assert(res.status === 200, "Create user status", { actual: res.status, expected: 200 });
+   * ```
+   *
+   * @example Bad — vague message (avoid)
+   * ```ts
+   * ctx.assert(res.ok); // no message at all
+   * ctx.assert(res.ok, "check"); // too vague
+   * ```
    */
   assert(
     condition: boolean,
@@ -263,10 +282,17 @@ export interface TestContext {
   ): void;
 
   /**
-   * Assertion reporting - streams to runner stdout.
+   * Low-level assertion — records a pass/fail event in the test trace.
    *
-   * Overload 2: Explicit result object (useful for complex logic)
-   * @example ctx.assert({ passed: res.status === 200, actual: res.status, expected: 200 }, "Status check")
+   * Overload 2: Explicit result object (useful for complex logic).
+   *
+   * @example
+   * ```ts
+   * ctx.assert(
+   *   { passed: res.status === 200, actual: res.status, expected: 200 },
+   *   "POST /orders should return 200",
+   * );
+   * ```
    */
   assert(result: AssertionResultInput, message?: string): void;
 
@@ -279,6 +305,11 @@ export interface TestContext {
    * Use `.orFail()` to guard assertions where subsequent code depends on the result.
    * Use `.not` to negate any assertion.
    *
+   * **Tip — readable failure messages**: The auto-generated message includes the
+   * actual and expected values (e.g. `"expected 401 to be 200"`). To add business
+   * context, use `ctx.assert` with a descriptive message for critical checks, or
+   * use `.toSatisfy(predicate, label)` for a labeled predicate assertion.
+   *
    * @example Basic assertions
    * ```ts
    * ctx.expect(res.status).toBe(200);
@@ -289,7 +320,7 @@ export interface TestContext {
    * @example Guard — abort if this fails
    * ```ts
    * ctx.expect(res.status).toBe(200).orFail();
-   * const body = await res.json(); // safe
+   * const body = await res.json(); // safe — status was 200
    * ```
    *
    * @example Negation
@@ -301,6 +332,14 @@ export interface TestContext {
    * ```ts
    * ctx.expect(res).toHaveStatus(200);
    * ctx.expect(res).toHaveHeader("content-type", /json/);
+   * ```
+   *
+   * @example Labeled predicate for custom context
+   * ```ts
+   * ctx.expect(res.status).toSatisfy(
+   *   (s) => s >= 200 && s < 300,
+   *   "GET /users should return 2xx",
+   * );
    * ```
    */
   expect<V>(actual: V): import("./expect.ts").Expectation<V>;

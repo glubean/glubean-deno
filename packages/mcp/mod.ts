@@ -13,7 +13,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { dirname, resolve, toFileUrl } from "@std/path";
+import { basename, dirname, resolve, toFileUrl } from "@std/path";
 import { parse } from "@std/dotenv/parse";
 import { crypto } from "@std/crypto";
 import { encodeHex } from "@std/encoding/hex";
@@ -48,6 +48,15 @@ async function loadEnvFile(envPath: string): Promise<Vars> {
   } catch {
     return {};
   }
+}
+
+/**
+ * Derive the secrets file path from an env file path.
+ * Convention: `.env` → `.env.secrets`, `.env.staging` → `.env.staging.secrets`.
+ * Mirrors the logic in `packages/cli/commands/run.ts`.
+ */
+function deriveSecretsPath(envPath: string): string {
+  return resolve(dirname(envPath), `${basename(envPath)}.secrets`);
 }
 
 function normalizeFilePath(path: string): string {
@@ -314,7 +323,7 @@ export async function diagnoseProjectConfig(args: {
   const projectRoot = await findProjectRoot(rootDir);
   const denoJsonPath = resolve(projectRoot, "deno.json");
   const envPath = args.envFile ? resolve(args.envFile) : resolve(projectRoot, ".env");
-  const secretsPath = envPath + ".secrets";
+  const secretsPath = deriveSecretsPath(envPath);
 
   const [denoJsonExists, envExists, secretsExists, testsDirExists, exploreDirExists] = await Promise.all([
     pathExists(denoJsonPath),
@@ -391,7 +400,7 @@ async function runLocalTestsFromFile(args: {
   const projectRoot = await findProjectRoot(testDir);
 
   const envPath = args.envFile ? resolve(args.envFile) : resolve(projectRoot, ".env");
-  const secretsPath = envPath + ".secrets";
+  const secretsPath = deriveSecretsPath(envPath);
 
   const [vars, secrets] = await Promise.all([
     loadEnvFile(envPath),
