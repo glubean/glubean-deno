@@ -4,7 +4,8 @@
   ],
   "test": {
     "exclude": [
-      "packages/cli/templates/"
+      "packages/cli/templates/",
+      "packages/mcp/testdata/"
     ]
   },
   "workspace": [

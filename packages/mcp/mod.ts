@@ -26,7 +26,7 @@ import { DEFAULT_GENERATED_BY, MCP_PACKAGE_VERSION } from "./version.ts";
 type Vars = Record<string, string>;
 const METADATA_SCHEMA_VERSION = "1";
 
-async function findProjectRoot(startDir: string): Promise<string> {
+export async function findProjectRoot(startDir: string): Promise<string> {
   let dir = startDir;
   while (true) {
     try {
@@ -41,7 +41,7 @@ async function findProjectRoot(startDir: string): Promise<string> {
   return startDir;
 }
 
-async function loadEnvFile(envPath: string): Promise<Vars> {
+export async function loadEnvFile(envPath: string): Promise<Vars> {
   try {
     const content = await Deno.readTextFile(envPath);
     return parse(content);
@@ -55,7 +55,7 @@ async function loadEnvFile(envPath: string): Promise<Vars> {
  * Convention: `.env` → `.env.secrets`, `.env.staging` → `.env.staging.secrets`.
  * Mirrors the logic in `packages/cli/commands/run.ts`.
  */
-function deriveSecretsPath(envPath: string): string {
+export function deriveSecretsPath(envPath: string): string {
   return resolve(dirname(envPath), `${basename(envPath)}.secrets`);
 }
 
@@ -137,7 +137,7 @@ async function buildMetadata(
   };
 }
 
-async function discoverTestsFromFile(filePath: string): Promise<{
+export async function discoverTestsFromFile(filePath: string): Promise<{
   fileUrl: string;
   tests: ResolvedTest[];
 }> {
@@ -378,7 +378,7 @@ export async function diagnoseProjectConfig(args: {
   };
 }
 
-async function runLocalTestsFromFile(args: {
+export async function runLocalTestsFromFile(args: {
   filePath: string;
   filter?: string;
   envFile?: string;
