@@ -128,6 +128,14 @@ export interface ExecutionNetworkPolicy {
 export interface ExecutionContext {
   vars: Record<string, string>;
   secrets: Record<string, string>;
+  /**
+   * Metadata for the currently executing test.
+   * Passed through to the harness runtime for plugin activation decisions.
+   */
+  test?: {
+    id?: string;
+    tags?: string[];
+  };
   /** Whole-test re-run count for this execution (0 for first attempt). */
   retryCount?: number;
   /** Optional egress policy applied by the harness runtime. */
@@ -577,9 +585,16 @@ export class TestExecutor {
 
     // Write context to stdin
     try {
+      const normalizedContext: ExecutionContext = {
+        ...context,
+        test: {
+          id: context.test?.id ?? testId,
+          tags: context.test?.tags ?? [],
+        },
+      };
       const encoder = new TextEncoder();
       const writer = process.stdin.getWriter();
-      await writer.write(encoder.encode(JSON.stringify(context)));
+      await writer.write(encoder.encode(JSON.stringify(normalizedContext)));
       await writer.close();
     } catch (error) {
       // If stdin write fails, kill the process and propagate error

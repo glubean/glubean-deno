@@ -15,12 +15,14 @@ function setRuntime(
   vars: Record<string, string> = {},
   secrets: Record<string, string> = {},
   http?: HttpClient,
+  test?: { id: string; tags: string[] },
 ) {
   // deno-lint-ignore no-explicit-any
   (globalThis as any).__glubeanRuntime = {
     vars,
     secrets,
     http: http ?? createMockHttp(),
+    test,
   };
   return () => {
     // deno-lint-ignore no-explicit-any
@@ -966,6 +968,108 @@ Deno.test("configure() without plugins - works as before", () => {
       vars: { baseUrl: "base_url" },
     });
     assertEquals(result.vars.baseUrl, "https://api.example.com");
+  } finally {
+    cleanup();
+  }
+});
+
+// =============================================================================
+// Plugin and HTTP activation
+// =============================================================================
+
+Deno.test("plugins - supports { factory, activation } entry wrapper", () => {
+  const cleanup = setRuntime({}, {}, undefined, { id: "t1", tags: [] });
+  try {
+    const result = configure({
+      plugins: {
+        wrapped: {
+          factory: definePlugin((_runtime) => ({ ok: true })),
+          activation: {
+            tags: { enable: ["smoke"] },
+          },
+        },
+      },
+    });
+
+    assertThrows(
+      () => result.wrapped.ok,
+      Error,
+      "activation.tags.enable",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+Deno.test("plugins - tags.enable activates plugin when tag matches", () => {
+  const cleanup = setRuntime({}, {}, undefined, { id: "t1", tags: ["smoke"] });
+  try {
+    const result = configure({
+      plugins: {
+        gated: {
+          factory: definePlugin((_runtime) => ({ ok: true })),
+          activation: { tags: { enable: ["smoke"] } },
+        },
+      },
+    });
+    assertEquals(result.gated.ok, true);
+  } finally {
+    cleanup();
+  }
+});
+
+Deno.test("plugins - tags.disable takes precedence over tags.enable", () => {
+  const cleanup = setRuntime({}, {}, undefined, {
+    id: "t1",
+    tags: ["smoke", "no-auth"],
+  });
+  try {
+    const result = configure({
+      plugins: {
+        gated: {
+          factory: definePlugin((_runtime) => ({ ok: true })),
+          activation: {
+            tags: {
+              enable: ["smoke"],
+              disable: ["no-auth"],
+            },
+          },
+        },
+      },
+    });
+    assertThrows(
+      () => result.gated.ok,
+      Error,
+      "matches activation.tags.disable",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+Deno.test("plugins - requests.exclude blocks plugin runtime.http calls", () => {
+  const cleanup = setRuntime({}, {}, createMockHttp(), { id: "t1", tags: [] });
+  try {
+    const result = configure({
+      plugins: {
+        secureApi: {
+          factory: definePlugin((runtime) => ({
+            login: () => runtime.http.get("https://api.example.com/auth/login"),
+          })),
+          activation: {
+            requests: {
+              exclude: [{ method: "GET", path: "/auth/login" }],
+            },
+          },
+        },
+      },
+    });
+
+    assertThrows(
+      () => result.secureApi.login(),
+      Error,
+      "inactive for request GET https://api.example.com/auth/login",
+    );
   } finally {
     cleanup();
   }

@@ -761,7 +761,7 @@ export interface ConfigureOptions {
    * ```
    */
   // deno-lint-ignore no-explicit-any
-  plugins?: Record<string, PluginFactory<any>>;
+  plugins?: Record<string, PluginFactory<any> | PluginEntry<any>>;
 }
 
 /**
@@ -915,6 +915,139 @@ export interface PluginFactory<T> {
 }
 
 /**
+ * Metadata about the currently running test.
+ *
+ * This is exposed to plugins so they can make deterministic activation decisions
+ * based on test identity and tags.
+ *
+ * @example
+ * ```ts
+ * definePlugin((runtime) => ({
+ *   currentTest: runtime.test?.id ?? "unknown",
+ *   tags: runtime.test?.tags ?? [],
+ * }));
+ * ```
+ */
+export interface GlubeanRuntimeTestMetadata {
+  /** Test ID currently being executed. */
+  id: string;
+  /** Normalized test tags (always an array). */
+  tags: string[];
+}
+
+/**
+ * Matcher for request-level plugin activation.
+ *
+ * A matcher can target:
+ * - HTTP method (`GET`, `POST`, ...)
+ * - request path (`/auth/login`)
+ * - full URL (`https://api.example.com/auth/login`)
+ *
+ * String values use prefix matching. Use `RegExp` for exact/pattern matches.
+ *
+ * @example Exclude common auth endpoints
+ * ```ts
+ * requests: {
+ *   exclude: [
+ *     { method: "POST", path: /^\/auth\/(login|signup|logout)$/ },
+ *   ],
+ * }
+ * ```
+ */
+export interface RequestMatcher {
+  /** HTTP method(s), case-insensitive. */
+  method?: string | string[];
+  /** Pathname matcher (e.g. `/auth/login`). */
+  path?: string | RegExp;
+  /** Full URL matcher. */
+  url?: string | RegExp;
+}
+
+/**
+ * Activation rules for SDK plugins.
+ *
+ * Defaults:
+ * - Missing activation config means "active"
+ * - `disable` rules take precedence over `enable`
+ * - `exclude` rules take precedence over `include`
+ *
+ * @example Enable plugin only for smoke tests
+ * ```ts
+ * activation: {
+ *   tags: { enable: ["smoke"] },
+ * }
+ * ```
+ *
+ * @example Enable globally, except login/logout
+ * ```ts
+ * activation: {
+ *   requests: {
+ *     exclude: [
+ *       { method: "POST", path: /^\/auth\/(login|logout)$/ },
+ *     ],
+ *   },
+ * }
+ * ```
+ */
+export interface PluginActivation {
+  /**
+   * Test-tag activation.
+   * - `enable`: active only when at least one tag matches
+   * - `disable`: force inactive when any tag matches
+   */
+  tags?: {
+    enable?: string[];
+    disable?: string[];
+  };
+  /**
+   * Request activation for plugin-owned HTTP traffic.
+   * - `include`: active only when request matches at least one rule
+   * - `exclude`: force inactive when request matches any rule
+   */
+  requests?: {
+    include?: RequestMatcher[];
+    exclude?: RequestMatcher[];
+  };
+}
+
+/**
+ * Plugin entry wrapper for `configure({ plugins })`.
+ *
+ * This preserves backward compatibility with the factory-only style while
+ * enabling per-plugin activation policies.
+ *
+ * @template T Plugin client type returned by `factory.create()`
+ *
+ * @example Existing style (still supported)
+ * ```ts
+ * plugins: {
+ *   gql: graphql({ endpoint: "GRAPHQL_URL" }),
+ * }
+ * ```
+ *
+ * @example New style with activation
+ * ```ts
+ * plugins: {
+ *   authClient: {
+ *     factory: authPlugin(),
+ *     activation: {
+ *       tags: { disable: ["public"] },
+ *       requests: {
+ *         exclude: [{ path: /^\/auth\/(login|signup|logout)$/ }],
+ *       },
+ *     },
+ *   },
+ * }
+ * ```
+ */
+export interface PluginEntry<T> {
+  /** The plugin factory (same object previously accepted directly). */
+  factory: PluginFactory<T>;
+  /** Optional activation policy for this plugin. */
+  activation?: PluginActivation;
+}
+
+/**
  * Runtime context available to plugin factories.
  * Exposes the same capabilities the harness provides to configure().
  *
@@ -939,6 +1072,8 @@ export interface GlubeanRuntime {
   secrets: Record<string, string>;
   /** Pre-configured HTTP client with auto-tracing */
   http: HttpClient;
+  /** Metadata of the currently executing test, if available. */
+  test?: GlubeanRuntimeTestMetadata;
   /** Require a var (throws if missing) */
   requireVar(key: string): string;
   /** Require a secret (throws if missing) */
@@ -952,7 +1087,9 @@ export interface GlubeanRuntime {
  * Used internally by `configure()` to infer the return type.
  */
 export type ResolvePlugins<P> = {
-  [K in keyof P]: P[K] extends PluginFactory<infer T> ? T : never;
+  [K in keyof P]: P[K] extends PluginFactory<infer T> ? T
+    : P[K] extends PluginEntry<infer T> ? T
+    : never;
 };
 
 /**

@@ -639,6 +639,10 @@ export async function executeBundle(
             vars: context.vars ?? {},
             // Secrets are loaded locally, never from RuntimeContext
             secrets,
+            test: {
+              id: test.testId,
+              tags: test.tags,
+            },
             networkPolicy: toRunnerNetworkPolicy(config),
           };
           const result = await executor.execute(

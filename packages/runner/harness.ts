@@ -125,6 +125,27 @@ const rawSecrets = (contextData.secrets ?? {}) as Record<string, string>;
 // 0 => first execution attempt.
 const retryCount = (contextData.retryCount ?? 0) as number;
 
+function normalizeTestTags(
+  input: string | string[] | undefined,
+): string[] {
+  if (!input) return [];
+  if (Array.isArray(input)) return input.filter((tag): tag is string => typeof tag === "string");
+  return [input];
+}
+
+function parseRuntimeTestMetadata(
+  input: unknown,
+): { id: string; tags: string[] } {
+  const candidate = input && typeof input === "object" ? (input as { id?: unknown; tags?: unknown }) : undefined;
+  const id = typeof candidate?.id === "string" ? candidate.id : (testId ?? "");
+  const tags = Array.isArray(candidate?.tags)
+    ? candidate.tags.filter((tag): tag is string => typeof tag === "string")
+    : [];
+  return { id, tags };
+}
+
+const runtimeTest = parseRuntimeTestMetadata(contextData.test);
+
 interface SharedServerlessNetworkPolicy {
   mode: "shared_serverless";
   maxRequests: number;
@@ -1259,6 +1280,7 @@ function withEnvFallback(
   secrets: withEnvFallback(rawSecrets),
   // deno-lint-ignore no-explicit-any
   http: (ctx as any).http,
+  test: runtimeTest,
 };
 
 try {
@@ -1420,12 +1442,19 @@ async function withFixtures(
  * @param test The Test object to execute
  */
 async function executeNewTest(test: Test<unknown>): Promise<void> {
+  const testTags = normalizeTestTags(test.meta.tags);
+  // Keep runtime metadata aligned with the actual resolved test before user code runs.
+  // deno-lint-ignore no-explicit-any
+  (globalThis as any).__glubeanRuntime.test = {
+    id: test.meta.id,
+    tags: testTags,
+  };
   console.log(
     JSON.stringify({
       type: "start",
       id: test.meta.id,
       name: test.meta.name || test.meta.id,
-      tags: test.meta.tags,
+      tags: testTags,
       ...(retryCount > 0 && { retryCount }),
     }),
   );
