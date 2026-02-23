@@ -102,14 +102,14 @@ glubean run tests/                     # Run all tests in a directory
 
 **Execution control**
 
-| Flag                   | Type    | Default | Description                                   |
-| ---------------------- | ------- | ------- | --------------------------------------------- |
-| `--env-file <path>`    | string  | `.env`  | Path to environment file                      |
-| `--config <paths>`     | string  | —       | Config file(s), comma-separated or repeatable |
-| `--fail-fast`          | boolean | `false` | Stop on first test failure                    |
-| `--fail-after <n>`     | number  | —       | Stop after N test failures                    |
-| `--inspect-brk [port]` | number  | `9229`  | Enable V8 Inspector for debugging             |
-| `--no-update-check`    | boolean | `false` | Skip CLI version check                        |
+| Flag                   | Type    | Default | Description                                                     |
+| ---------------------- | ------- | ------- | --------------------------------------------------------------- |
+| `--env-file <path>`    | string  | `.env`  | Path to environment file (missing keys fall back to system env) |
+| `--config <paths>`     | string  | —       | Config file(s), comma-separated or repeatable                   |
+| `--fail-fast`          | boolean | `false` | Stop on first test failure                                      |
+| `--fail-after <n>`     | number  | —       | Stop after N test failures                                      |
+| `--inspect-brk [port]` | number  | `9229`  | Enable V8 Inspector for debugging                               |
+| `--no-update-check`    | boolean | `false` | Skip CLI version check                                          |
 
 **Exit codes**: `0` = all tests passed, `1` = any test failed or no tests found.
 
@@ -192,6 +192,23 @@ Access in tests:
 const baseUrl = ctx.vars.require("BASE_URL"); // from .env
 const apiKey = ctx.secrets.require("API_KEY"); // from .env.secrets
 ```
+
+Resolution order (per key):
+
+- `ctx.vars.*("KEY")`: `.env` (or selected `--env-file`) -> system env `KEY`
+- `ctx.secrets.*("KEY")`: matching `.secrets` file -> system env `KEY`
+
+If your shell variable names differ from the names used in tests, map them with `${...}`:
+
+```dotenv
+# .env
+BASE_URL=${GLUBEAN_URL}
+
+# .env.secrets
+API_KEY=${GLUBEAN_API_KEY}
+```
+
+This lets teams reuse locally configured keys without copying raw secret values into project files.
 
 > **Tip**: Add `.env.secrets` and `.env.*.secrets` to `.gitignore`. Never commit secrets.
 
