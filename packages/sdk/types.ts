@@ -1013,11 +1013,35 @@ export interface HttpRetryOptions {
 
 /**
  * Options for HTTP requests.
- * Compatible with ky's Options interface.
  *
- * @example POST with JSON
+ * **`ctx.http` is a thin wrapper around [ky](https://github.com/sindresorhus/ky).**
+ * All ky options are supported. See https://github.com/sindresorhus/ky#options
+ * for the complete reference.
+ *
+ * **There is no `form` shortcut** — ky (and therefore `ctx.http`) does not have one.
+ * Use `body: new URLSearchParams(...)` for `application/x-www-form-urlencoded` data.
+ *
+ * @example POST with JSON (most common)
  * ```ts
- * ctx.http.post(url, { json: { name: "test" } });
+ * const res = await ctx.http.post(url, { json: { name: "test" } });
+ * ```
+ *
+ * @example POST with form-urlencoded data
+ * ```ts
+ * const res = await ctx.http.post(url, {
+ *   body: new URLSearchParams({
+ *     grant_type: "client_credentials",
+ *     client_id: ctx.secrets.require("CLIENT_ID"),
+ *     client_secret: ctx.secrets.require("CLIENT_SECRET"),
+ *   }),
+ * });
+ * ```
+ *
+ * @example POST with multipart form data
+ * ```ts
+ * const form = new FormData();
+ * form.append("file", new Blob(["content"]), "test.txt");
+ * const res = await ctx.http.post(url, { body: form });
  * ```
  *
  * @example With search params and timeout
@@ -1048,7 +1072,15 @@ export interface HttpRequestOptions {
   throwHttpErrors?: boolean;
   /** HTTP method override */
   method?: string;
-  /** Request body (for non-JSON payloads) */
+  /**
+   * Request body for non-JSON payloads.
+   *
+   * - `new URLSearchParams(...)` for `application/x-www-form-urlencoded`
+   * - `new FormData()` for `multipart/form-data`
+   * - `string` or `Blob` for raw payloads
+   *
+   * Do **not** use `json` and `body` together — `json` takes precedence.
+   */
   body?: BodyInit;
   /** AbortSignal for request cancellation */
   signal?: AbortSignal;
