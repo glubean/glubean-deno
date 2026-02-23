@@ -89,6 +89,103 @@ deno run -A jsr:@glubean/mcp
 - `glubean_open_get_run` — fetch remote run status
 - `glubean_open_get_run_events` — fetch remote run events
 
+## Improving AI tool selection (recommended)
+
+AI agents don't always pick the right MCP tool on their own — they match based on tool descriptions, which competes with
+dozens of built-in tools. Adding a **cursor rule** dramatically improves hit rate by teaching the AI upfront.
+
+The rule below is ~200 bytes — negligible token cost. We recommend `alwaysApply: true` so it loads in every
+conversation. You won't notice it in your token budget, but the AI will reliably reach for Glubean tools when you say
+"run tests", "debug this API", or "check my config".
+
+### Cursor
+
+Create `.cursor/rules/glubean.mdc` in your project root:
+
+```markdown
+---
+description: "Glubean API testing — run, debug, create, fix tests"
+alwaysApply: true
+---
+
+# Glubean API Testing
+
+This project uses Glubean for API testing. When the user asks to run, debug, create, or fix API tests, always use the
+Glubean MCP tools:
+
+- Run a test file → `glubean_run_local_file`
+- List test files → `glubean_list_test_files`
+- Inspect exports in a file → `glubean_discover_tests`
+- Check project config → `glubean_diagnose_config`
+- Review last run → `glubean_get_last_run_summary` / `glubean_get_local_events`
+
+After running, read the structured assertion failures, fix the code, and re-run until all tests pass.
+
+Test files live in `tests/` or `explore/` and use `@glubean/sdk`. Environment variables: `.env`. Secrets:
+`.env.secrets`.
+```
+
+### Windsurf
+
+Create `.windsurfrules` in your project root with the same content (without the YAML frontmatter).
+
+### Why this works
+
+MCP tools compete with the AI's built-in tools (shell, file read, etc.) for attention. Without a rule, the AI sees
+"glubean_run_local_file" in a list of 50+ tools and often ignores it. The rule puts Glubean front-and-center in the
+system prompt so the AI knows _exactly_ when to reach for it — no guessing.
+
+### If the AI still doesn't trigger
+
+Mention **"glubean"** explicitly — e.g. "use glubean to run the test" instead of just "run the test".
+
+## Talking to your AI
+
+Once configured (especially with the rule above), you can interact using natural language. Here are common scenarios:
+
+### Generate and run a test
+
+> "Write an API test for GET /users that checks status 200 and validates the response has an array of users. Run it."
+
+The agent will create a test file, then call `glubean_run_local_file` to execute it. If assertions fail, it sees the
+structured failures and can fix the code automatically.
+
+### Debug a failing test
+
+> "Run tests/users.test.ts and tell me what's failing."
+
+Triggers `glubean_run_local_file` → the agent reads assertion results, traces, and logs to explain the failure.
+
+### Check project setup
+
+> "Is my Glubean project configured correctly?"
+
+Triggers `glubean_diagnose_config` → returns missing `.env` vars, missing `deno.json`, or missing test directories with
+fix suggestions.
+
+### Explore existing tests
+
+> "What tests do we have? Show me all test files."
+
+Triggers `glubean_list_test_files` → lists all test files in the project.
+
+> "What test cases are in tests/orders.test.ts?"
+
+Triggers `glubean_discover_tests` → lists every exported `test` in that file with names and tags.
+
+### Iterate on failures
+
+> "The /orders endpoint now returns 201 instead of 200. Update the test and re-run."
+
+The agent edits the test file, calls `glubean_run_local_file` again, and confirms all assertions pass. This is the core
+AI loop — write, run, see facts, fix, repeat.
+
+### Check the last run
+
+> "What happened in the last test run? Show me the assertions."
+
+Triggers `glubean_get_last_run_summary` and `glubean_get_local_events` to return structured results without re-running.
+
 ## Notes
 
 - This is a **stdio** transport server. It must not write to stdout except MCP JSON-RPC messages.
