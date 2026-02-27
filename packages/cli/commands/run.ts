@@ -70,6 +70,14 @@ interface RunOptions {
   reporterPath?: string;
   /** Max trace files to keep per test (default: 20) */
   traceLimit?: number;
+  /** Upload results + artifacts to Glubean Cloud */
+  upload?: boolean;
+  /** Glubean Cloud project ID */
+  project?: string;
+  /** Auth token for cloud upload */
+  token?: string;
+  /** Glubean API server URL */
+  apiUrl?: string;
 }
 
 /** Collected events for a single test, used for result JSON and summary. */
@@ -1281,6 +1289,41 @@ export async function runCommand(
       );
     } catch {
       // Non-critical: silently skip if trace files cannot be written
+    }
+  }
+
+  // ── Cloud upload ────────────────────────────────────────────────────────
+  if (options.upload) {
+    const { resolveToken, resolveProjectId, resolveApiUrl } = await import(
+      "../lib/auth.ts"
+    );
+    const { uploadToCloud } = await import("../lib/upload.ts");
+
+    const authOpts = {
+      token: options.token,
+      project: options.project,
+      apiUrl: options.apiUrl,
+    };
+    const token = await resolveToken(authOpts);
+    const projectId = await resolveProjectId(authOpts);
+    const apiUrl = await resolveApiUrl(authOpts);
+
+    if (!token) {
+      console.log(
+        `${colors.yellow}No auth token found. Run 'glubean login' or set GLUBEAN_TOKEN.${colors.reset}`,
+      );
+    } else if (!projectId) {
+      console.log(
+        `${colors.yellow}No project ID. Use --project or run 'glubean login'.${colors.reset}`,
+      );
+    } else {
+      await uploadToCloud(resultPayload, {
+        apiUrl,
+        token,
+        projectId,
+        envFile: effectiveRun.envFile,
+        rootDir,
+      });
     }
   }
 

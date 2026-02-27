@@ -18,6 +18,7 @@ import { diffCommand } from "./commands/diff.ts";
 import { coverageCommand } from "./commands/coverage.ts";
 import { contextCommand } from "./commands/context.ts";
 import { upgradeCommand } from "./commands/upgrade.ts";
+import { loginCommand } from "./commands/login.ts";
 import { CLI_VERSION } from "./version.ts";
 import { checkForUpdates } from "./update_check.ts";
 
@@ -122,6 +123,16 @@ cli
     "--ci",
     "CI mode: enables --fail-fast and --reporter junit",
   )
+  .option("--upload", "Upload run results and artifacts to Glubean Cloud")
+  .option(
+    "--project <id:string>",
+    "Glubean Cloud project ID (or GLUBEAN_PROJECT_ID env)",
+  )
+  .option(
+    "--token <token:string>",
+    "Auth token for cloud upload (or GLUBEAN_TOKEN env)",
+  )
+  .option("--api-url <url:string>", "Glubean API server URL")
   .action(async (options, target?: string) => {
     // Flatten --config values: support both comma-separated and repeated flags
     const configFiles = options.config
@@ -175,6 +186,10 @@ cli
       reporter,
       reporterPath,
       traceLimit: options.traceLimit,
+      upload: options.upload,
+      project: options.project,
+      token: options.token,
+      apiUrl: options.apiUrl,
     });
   });
 
@@ -303,6 +318,28 @@ cli
       openapi: options.openapi,
       dir: options.dir,
       out: options.out,
+    });
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// login command
+// ─────────────────────────────────────────────────────────────────────────────
+cli
+  .command("login", "Authenticate with Glubean Cloud")
+  .option(
+    "--token <token:string>",
+    "Auth token (skip interactive prompt)",
+  )
+  .option(
+    "--project <id:string>",
+    "Default project ID",
+  )
+  .option("--api-url <url:string>", "API server URL")
+  .action(async (options) => {
+    await loginCommand({
+      token: options.token,
+      project: options.project,
+      apiUrl: options.apiUrl,
     });
   });
 
