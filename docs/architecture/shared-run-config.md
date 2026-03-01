@@ -1,6 +1,6 @@
 # Design: Unified SharedRunConfig
 
-**Issue**: [glubean/glubean#1](https://github.com/glubean/glubean/issues/1) **Status**: Proposed **Author**: AI
+**Issue**: [glubean/glubean#1](https://github.com/glubean/glubean/issues/1) **Status**: Complete **Author**: AI
 (reviewed by team)
 
 ## Problem
