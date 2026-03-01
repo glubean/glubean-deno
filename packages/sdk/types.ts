@@ -1669,6 +1669,16 @@ export interface TestMeta {
    * ```
    */
   tagFields?: string | string[];
+
+  /**
+   * If true, workflow-level metrics (total duration + per-step durations)
+   * are exported to the Prometheus metrics endpoint. Endpoint latency
+   * metrics are always collected regardless of this flag.
+   *
+   * Use this for tests where workflow performance matters and you want
+   * to track it in Grafana. Defaults to false to avoid cardinality explosion.
+   */
+  enableMetrics?: boolean;
 }
 
 /**
