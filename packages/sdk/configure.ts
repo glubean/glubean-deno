@@ -494,11 +494,107 @@ function buildActivationAwareHttpClient(
   return wrapped as HttpClient;
 }
 
-function buildLazyPluginDescriptors(
+/**
+ * Resolve (or retrieve cached) the real plugin instance for the current runtime.
+ *
+ * @internal
+ */
+function resolvePlugin(
+  name: string,
+  // deno-lint-ignore no-explicit-any
+  entry: PluginEntry<any>,
+  cache: WeakMap<InternalRuntime, unknown>,
+): unknown {
+  const runtime = getRuntime();
+  const tagDecision = evaluateTagActivation(entry.activation, runtime);
+  if (!tagDecision.active) {
+    const testId = runtime.test?.id;
+    throw new Error(
+      `Plugin "${name}" is inactive${testId ? ` for test "${testId}"` : ""}: ${tagDecision.reason}.`,
+    );
+  }
+
+  if (cache.has(runtime)) return cache.get(runtime);
+
+  // Build the augmented runtime that plugins see
+  const noop = () => {};
+  const augmented: GlubeanRuntime = {
+    vars: runtime.vars,
+    secrets: runtime.secrets,
+    http: buildActivationAwareHttpClient(
+      name,
+      entry.activation,
+      runtime.http,
+    ),
+    test: runtime.test,
+    requireVar,
+    requireSecret,
+    resolveTemplate: (template: string) => resolveTemplate(template, runtime.vars, runtime.secrets),
+    action: runtime.action?.bind(runtime) ?? noop,
+    event: runtime.event?.bind(runtime) ?? noop,
+    log: runtime.log?.bind(runtime) ?? noop,
+  };
+
+  const instance = entry.factory.create(augmented);
+  cache.set(runtime, instance);
+  return instance;
+}
+
+/**
+ * Build a Proxy that defers plugin creation until the plugin is actually used.
+ *
+ * This allows `const { chrome } = configure(...)` to work at module top-level —
+ * the destructured value is a transparent Proxy, not the real plugin instance.
+ * The real instance is created lazily on first property access / method call
+ * during test execution.
+ *
+ * @internal
+ */
+function buildLazyPlugin(
+  name: string,
+  // deno-lint-ignore no-explicit-any
+  entry: PluginEntry<any>,
+): unknown {
+  const cache = new WeakMap<InternalRuntime, unknown>();
+
+  return new Proxy(Object.create(null), {
+    get(_target, prop, receiver) {
+      const instance = resolvePlugin(name, entry, cache);
+      // deno-lint-ignore no-explicit-any
+      const value = Reflect.get(instance as any, prop, receiver);
+      return typeof value === "function"
+        // deno-lint-ignore no-explicit-any
+        ? value.bind(instance as any)
+        : value;
+    },
+    set(_target, prop, value) {
+      const instance = resolvePlugin(name, entry, cache);
+      // deno-lint-ignore no-explicit-any
+      return Reflect.set(instance as any, prop, value);
+    },
+    has(_target, prop) {
+      const instance = resolvePlugin(name, entry, cache);
+      // deno-lint-ignore no-explicit-any
+      return Reflect.has(instance as any, prop);
+    },
+    ownKeys() {
+      const instance = resolvePlugin(name, entry, cache);
+      // deno-lint-ignore no-explicit-any
+      return Reflect.ownKeys(instance as any);
+    },
+    getOwnPropertyDescriptor(_target, prop) {
+      const instance = resolvePlugin(name, entry, cache);
+      // deno-lint-ignore no-explicit-any
+      return Object.getOwnPropertyDescriptor(instance as any, prop);
+    },
+  });
+}
+
+function buildLazyPlugins(
   // deno-lint-ignore no-explicit-any
   plugins: Record<string, PluginFactory<any> | PluginEntry<any>>,
-): PropertyDescriptorMap {
-  const descriptors: PropertyDescriptorMap = {};
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
 
   for (const [name, rawEntry] of Object.entries(plugins)) {
     if (RESERVED_KEYS.has(name)) {
@@ -507,51 +603,10 @@ function buildLazyPluginDescriptors(
           `Choose a different key (reserved: ${[...RESERVED_KEYS].join(", ")}).`,
       );
     }
-    const entry = normalizePluginEntry(rawEntry);
-    const cache = new WeakMap<InternalRuntime, unknown>();
-
-    descriptors[name] = {
-      get() {
-        const runtime = getRuntime();
-        const tagDecision = evaluateTagActivation(entry.activation, runtime);
-        if (!tagDecision.active) {
-          const testId = runtime.test?.id;
-          throw new Error(
-            `Plugin "${name}" is inactive${testId ? ` for test "${testId}"` : ""}: ${tagDecision.reason}.`,
-          );
-        }
-
-        if (cache.has(runtime)) return cache.get(runtime);
-
-        // Build the augmented runtime that plugins see
-        const noop = () => {};
-        const augmented: GlubeanRuntime = {
-          vars: runtime.vars,
-          secrets: runtime.secrets,
-          http: buildActivationAwareHttpClient(
-            name,
-            entry.activation,
-            runtime.http,
-          ),
-          test: runtime.test,
-          requireVar,
-          requireSecret,
-          resolveTemplate: (template: string) => resolveTemplate(template, runtime.vars, runtime.secrets),
-          action: runtime.action?.bind(runtime) ?? noop,
-          event: runtime.event?.bind(runtime) ?? noop,
-          log: runtime.log?.bind(runtime) ?? noop,
-        };
-
-        const instance = entry.factory.create(augmented);
-        cache.set(runtime, instance);
-        return instance;
-      },
-      enumerable: true,
-      configurable: false,
-    };
+    result[name] = buildLazyPlugin(name, normalizePluginEntry(rawEntry));
   }
 
-  return descriptors;
+  return result;
 }
 
 // =============================================================================
@@ -639,10 +694,7 @@ export function configure<
   const base = { vars, secrets, http };
 
   if (options.plugins) {
-    // Copy lazy property descriptors from plugins to the result object
-    // without triggering getters (spread would eagerly invoke them)
-    const pluginDescriptors = buildLazyPluginDescriptors(options.plugins);
-    Object.defineProperties(base, pluginDescriptors);
+    Object.assign(base, buildLazyPlugins(options.plugins));
   }
 
   return base as

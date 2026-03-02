@@ -882,7 +882,7 @@ Deno.test("plugins - factory receives augmented GlubeanRuntime with resolveTempl
   }
 });
 
-Deno.test("plugins - throws clear error if accessed without runtime", () => {
+Deno.test("plugins - safe to destructure without runtime", () => {
   clearRuntime();
   const result = configure({
     plugins: {
@@ -890,8 +890,13 @@ Deno.test("plugins - throws clear error if accessed without runtime", () => {
     },
   });
 
+  // Destructuring should not throw — the value is a lazy Proxy
+  const { test: plugin } = result;
+  assertEquals(typeof plugin, "object");
+
+  // Actually *using* the plugin should throw without runtime
   assertThrows(
-    () => result.test,
+    () => plugin.value,
     Error,
     "configure() values can only be accessed during test execution",
   );
@@ -944,7 +949,7 @@ Deno.test("configure({ plugins }) - TypeScript generic inference (verified by as
     const result = configure({
       plugins: {
         alpha: definePlugin((_r) => ({ x: 1, y: "hello" })),
-        beta: definePlugin((_r) => ["a", "b", "c"]),
+        beta: definePlugin((_r) => ({ items: ["a", "b", "c"] })),
       },
     });
 
@@ -952,10 +957,10 @@ Deno.test("configure({ plugins }) - TypeScript generic inference (verified by as
     // If inference is wrong, these assignments would be compile errors.
     const x: number = result.alpha.x;
     const y: string = result.alpha.y;
-    const arr: string[] = result.beta;
+    const items: string[] = result.beta.items;
     assertEquals(x, 1);
     assertEquals(y, "hello");
-    assertEquals(arr, ["a", "b", "c"]);
+    assertEquals(items, ["a", "b", "c"]);
   } finally {
     cleanup();
   }
