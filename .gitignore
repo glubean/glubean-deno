@@ -48,3 +48,4 @@ packages/worker/REVIEW.md
 
 # Claude Code
 .claude/
+*.code-workspace
