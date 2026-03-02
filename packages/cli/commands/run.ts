@@ -1297,6 +1297,26 @@ export async function runCommand(
     }
   }
 
+  // ── Screenshot paths ──────────────────────────────────────────────────
+  {
+    const screenshotPaths: string[] = [];
+    for (const run of collectedRuns) {
+      for (const event of run.events) {
+        if (event.type !== "event") continue;
+        const ev = event.data as { type?: string; data?: Record<string, unknown> };
+        if (ev.type === "browser:screenshot" && typeof ev.data?.path === "string") {
+          screenshotPaths.push(resolve(rootDir, ev.data.path));
+        }
+      }
+    }
+    if (screenshotPaths.length > 0) {
+      for (const p of screenshotPaths) {
+        console.log(`${colors.dim}Screenshot: ${colors.reset}${p}`);
+      }
+      console.log();
+    }
+  }
+
   // ── Cloud upload ────────────────────────────────────────────────────────
   if (options.upload) {
     const { resolveToken, resolveProjectId, resolveApiUrl } = await import(
