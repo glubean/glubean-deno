@@ -7,7 +7,7 @@
  * API Reference: @openapi.json
  */
 // deno-lint-ignore no-import-prefix
-import { test } from "jsr:@glubean/sdk@^0.11.0";
+import { test } from "jsr:@glubean/sdk@^0.12.0";
 
 // ============================================================================
 // Posts API Tests

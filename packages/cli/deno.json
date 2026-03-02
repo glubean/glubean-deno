@@ -1,6 +1,6 @@
 {
   "name": "@glubean/cli",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "exports": "./mod.ts",
   "license": "MIT",
   "description": "Glubean CLI - Run and sync API tests from the command line",
@@ -10,8 +10,8 @@
   "imports": {
     "@glubean/sdk": "jsr:@glubean/sdk@^0.12.0",
     "@glubean/runner": "jsr:@glubean/runner@^0.12.0",
-    "@glubean/scanner": "jsr:@glubean/scanner@^0.11.0",
-    "@glubean/redaction": "jsr:@glubean/redaction@^0.11.0",
+    "@glubean/scanner": "jsr:@glubean/scanner@^0.12.0",
+    "@glubean/redaction": "jsr:@glubean/redaction@^0.12.0",
     "@cliffy/command": "jsr:@cliffy/command@^1.0.0-rc.8",
     "@cliffy/prompt": "jsr:@cliffy/prompt@^1.0.0-rc.8",
     "@std/cli": "jsr:@std/cli@^1.0.0",

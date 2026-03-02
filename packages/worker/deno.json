@@ -1,6 +1,6 @@
 {
   "name": "@glubean/worker",
-  "version": "0.11.2",
+  "version": "0.12.2",
   "exports": {
     ".": "./mod.ts",
     "./cli": "./cli.ts"
@@ -21,9 +21,9 @@
     "dev": "deno run --watch -A cli.ts"
   },
   "imports": {
-    "@glubean/runner": "jsr:@glubean/runner@^0.11.0",
-    "@glubean/redaction": "jsr:@glubean/redaction@^0.11.0",
-    "@glubean/sdk": "jsr:@glubean/sdk@^0.11.0",
+    "@glubean/runner": "jsr:@glubean/runner@^0.12.0",
+    "@glubean/redaction": "jsr:@glubean/redaction@^0.12.0",
+    "@glubean/sdk": "jsr:@glubean/sdk@^0.12.0",
     "@std/tar": "jsr:@std/tar@^0.1",
     "@std/tar/untar-stream": "jsr:@std/tar@^0.1/untar-stream",
     "@std/path": "jsr:@std/path@^1",

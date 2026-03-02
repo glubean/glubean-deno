@@ -1,6 +1,6 @@
 {
   "name": "@glubean/scanner",
-  "version": "0.11.4",
+  "version": "0.12.2",
   "exports": {
     ".": "./mod.ts",
     "./static": "./static.ts"

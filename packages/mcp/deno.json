@@ -1,6 +1,6 @@
 {
   "name": "@glubean/mcp",
-  "version": "0.11.3",
+  "version": "0.12.2",
   "exports": "./mod.ts",
   "license": "MIT",
   "description": "Glubean MCP server - run checks and fetch facts for AI agents",
@@ -11,6 +11,6 @@
     ]
   },
   "imports": {
-    "@glubean/runner": "jsr:@glubean/runner@^0.11.0"
+    "@glubean/runner": "jsr:@glubean/runner@^0.12.0"
   }
 }

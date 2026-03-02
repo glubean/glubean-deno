@@ -99,6 +99,9 @@ function createMockRuntime(
         return val;
       });
     },
+    action() {},
+    event() {},
+    log() {},
   };
 }
 
