@@ -153,14 +153,6 @@ async function loadEnvFile(envPath: string): Promise<Record<string, string>> {
   }
 }
 
-// ── SDK import patterns (mirrors @glubean/scanner) ──────────────────────────
-
-const SDK_IMPORT_PATTERNS = [
-  /import\s+.*from\s+["']jsr:@glubean\/sdk["']/,
-  /import\s+.*from\s+["']@glubean\/sdk["']/,
-  /import\s+.*\{[^}]*test[^}]*\}/,
-];
-
 const DEFAULT_SKIP_DIRS = ["node_modules", ".git", "dist", "build", ".deno"];
 const DEFAULT_EXTENSIONS = ["ts"];
 
@@ -172,23 +164,13 @@ function isGlob(target: string): boolean {
 }
 
 /**
- * Check if a file looks like a Glubean test file (contains SDK import).
- */
-async function isGlubeanTestFile(filePath: string): Promise<boolean> {
-  try {
-    const content = await Deno.readTextFile(filePath);
-    return SDK_IMPORT_PATTERNS.some((pattern) => pattern.test(content));
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Resolve a target (file, directory, or glob) into an array of test file paths.
  *
- * - Single file: returns [file] as-is (no SDK check — user explicitly chose it).
- * - Directory: walks recursively, filters to .ts files with SDK import.
- * - Glob: expands pattern, filters to files with SDK import.
+ * - Single file: returns [file] as-is.
+ * - Directory: walks recursively, collects all *.test.ts files.
+ * - Glob: expands pattern, collects all *.test.ts files.
+ *
+ * The *.test.ts extension is the convention — no import-based detection needed.
  */
 async function resolveTestFiles(target: string): Promise<string[]> {
   const abs = resolve(target);
@@ -200,7 +182,7 @@ async function resolveTestFiles(target: string): Promise<string[]> {
       return [abs];
     }
 
-    // 2. Directory: walk and filter (only *.test.ts files)
+    // 2. Directory: walk and collect all *.test.ts files
     if (stat.isDirectory) {
       const skipPatterns = DEFAULT_SKIP_DIRS.map(
         (d) => new RegExp(`(^|/)${d}(/|$)`),
@@ -212,9 +194,8 @@ async function resolveTestFiles(target: string): Promise<string[]> {
           skip: skipPatterns,
         })
       ) {
-        // Only consider *.test.ts files in auto-scan
         if (!entry.path.endsWith(".test.ts")) continue;
-        if (entry.isFile && (await isGlubeanTestFile(entry.path))) {
+        if (entry.isFile) {
           files.push(entry.path);
         }
       }
@@ -235,9 +216,8 @@ async function resolveTestFiles(target: string): Promise<string[]> {
         globstar: true,
       })
     ) {
-      // Only consider *.test.ts files in auto-scan
       if (!entry.path.endsWith(".test.ts")) continue;
-      if (entry.isFile && (await isGlubeanTestFile(entry.path))) {
+      if (entry.isFile) {
         files.push(entry.path);
       }
     }

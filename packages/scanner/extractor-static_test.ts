@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { extractFromSource, isGlubeanFile } from "./extractor-static.ts";
+import { extractAliasesFromSource, extractFromSource, isGlubeanFile } from "./extractor-static.ts";
 
 // =============================================================================
 // Empty / no-export cases
@@ -425,13 +425,50 @@ Deno.test("isGlubeanFile returns false for unrelated code", () => {
   assertEquals(isGlubeanFile(""), false);
 });
 
-Deno.test("isGlubeanFile returns false for similar-looking imports", () => {
+Deno.test("isGlubeanFile returns false for non-convention imports from other packages", () => {
+  // Non-convention identifiers from other packages should NOT match
   assertEquals(
-    isGlubeanFile(`import { test } from "@glubean/runner";`),
+    isGlubeanFile(`import { something } from "@glubean/runner";`),
     false,
   );
   assertEquals(
-    isGlubeanFile(`import { test } from "jsr:@other/sdk";`),
+    isGlubeanFile(`import { utils } from "jsr:@other/sdk";`),
+    false,
+  );
+});
+
+Deno.test("isGlubeanFile detects convention-based *Test/*Task imports from any module", () => {
+  // Convention: import { browserTest } from local fixtures
+  assertEquals(
+    isGlubeanFile(`import { browserTest } from "./configure.ts";`),
+    true,
+  );
+  // Convention: import { deployTask } from local module
+  assertEquals(
+    isGlubeanFile(`import { deployTask } from "../tasks.ts";`),
+    true,
+  );
+  // Convention: import { test } from a re-export module
+  assertEquals(
+    isGlubeanFile(`import { test } from "./fixtures.ts";`),
+    true,
+  );
+  // Convention: import { task } from another package
+  assertEquals(
+    isGlubeanFile(`import { task } from "@glubean/runner";`),
+    true,
+  );
+});
+
+Deno.test("isGlubeanFile rejects identifiers that only contain test/task substring", () => {
+  // "latestResult" contains "test" but doesn't end with Test/Task
+  assertEquals(
+    isGlubeanFile(`import { latestResult } from "./utils.ts";`),
+    false,
+  );
+  // "multitask" contains "task" but doesn't end with Task
+  assertEquals(
+    isGlubeanFile(`import { multitask } from "./parallel.ts";`),
     false,
   );
 });
@@ -520,4 +557,214 @@ export const flow = test("crud-flow").step("create", async () => {});
   assertEquals(result[2].variant, "pick");
   assertEquals(result[3].id, "crud-flow");
   assertEquals(result[3].variant, undefined);
+});
+
+// =============================================================================
+// Extended function names (*Test, *Task, task)
+// =============================================================================
+
+Deno.test("extracts test from custom *Test function (test.extend)", () => {
+  const content = `
+import { browserTest } from "./configure.ts";
+
+export const homepageLoads = browserTest(
+  { id: "landing-homepage-loads", tags: ["smoke"] },
+  async ({ page }) => {}
+);
+`;
+  const result = extractFromSource(content);
+  assertEquals(result.length, 1);
+  assertEquals(result[0].id, "landing-homepage-loads");
+  assertEquals(result[0].tags, ["smoke"]);
+  assertEquals(result[0].exportName, "homepageLoads");
+});
+
+Deno.test("extracts test from 'task' base function", () => {
+  const content = `
+export const deploy = task("deploy-staging", async (ctx) => {});
+`;
+  const result = extractFromSource(content);
+  assertEquals(result.length, 1);
+  assertEquals(result[0].id, "deploy-staging");
+  assertEquals(result[0].exportName, "deploy");
+});
+
+Deno.test("extracts test from custom *Task function", () => {
+  const content = `
+export const deployProd = deployTask(
+  { id: "deploy-prod", tags: ["deploy"] },
+  async (ctx) => {}
+);
+`;
+  const result = extractFromSource(content);
+  assertEquals(result.length, 1);
+  assertEquals(result[0].id, "deploy-prod");
+  assertEquals(result[0].tags, ["deploy"]);
+  assertEquals(result[0].exportName, "deployProd");
+});
+
+Deno.test("extracts *Test builder with steps", () => {
+  const content = `
+export const loginFlow = browserTest("browser-login")
+  .meta({ tags: ["e2e"] })
+  .step("navigate", async (ctx) => {})
+  .step("fill form", async (ctx) => {});
+`;
+  const result = extractFromSource(content);
+  assertEquals(result.length, 1);
+  assertEquals(result[0].id, "browser-login");
+  assertEquals(result[0].tags, ["e2e"]);
+  assertEquals(result[0].steps, [{ name: "navigate" }, { name: "fill form" }]);
+});
+
+Deno.test("extracts *Test.each() data-driven pattern", () => {
+  const content = `
+export const pageTests = browserTest.each(pages)(
+  "page-$slug",
+  async ({ page }, { slug }) => {}
+);
+`;
+  const result = extractFromSource(content);
+  assertEquals(result.length, 1);
+  assertEquals(result[0].id, "page-$slug");
+  assertEquals(result[0].variant, "each");
+});
+
+Deno.test("extracts *Test.pick() example selection pattern", () => {
+  const content = `
+export const searchTests = screenshotTest.pick({
+  "desktop": { viewport: "1920x1080" },
+  "mobile": { viewport: "390x844" },
+})("screenshot-$_pick", async ({ page }, data) => {});
+`;
+  const result = extractFromSource(content);
+  assertEquals(result.length, 1);
+  assertEquals(result[0].id, "screenshot-$_pick");
+  assertEquals(result[0].variant, "pick");
+});
+
+Deno.test("does NOT match identifiers that merely contain 'test' or 'task'", () => {
+  const content = `
+export const latestResult = getLatest("id", async () => {});
+export const multitask = parallel("id", async () => {});
+export const testResult = something("id", async () => {});
+export const attest = verify("id", async () => {});
+`;
+  const result = extractFromSource(content);
+  assertEquals(result.length, 0);
+});
+
+Deno.test("mixed file with test, task, *Test, and *Task functions", () => {
+  const content = `
+export const health = test("health", async (ctx) => {});
+export const deploy = task("deploy", async (ctx) => {});
+export const login = browserTest("browser-login", async ({ page }) => {});
+export const cleanup = cleanupTask("cleanup-db", async (ctx) => {});
+`;
+  const result = extractFromSource(content);
+  assertEquals(result.length, 4);
+  assertEquals(result[0].id, "health");
+  assertEquals(result[0].exportName, "health");
+  assertEquals(result[1].id, "deploy");
+  assertEquals(result[1].exportName, "deploy");
+  assertEquals(result[2].id, "browser-login");
+  assertEquals(result[2].exportName, "login");
+  assertEquals(result[3].id, "cleanup-db");
+  assertEquals(result[3].exportName, "cleanup");
+});
+
+// =============================================================================
+// extractAliasesFromSource
+// =============================================================================
+
+Deno.test("extractAliasesFromSource finds test.extend aliases", () => {
+  const content = `
+import { test } from "@glubean/sdk";
+export const browserTest = test.extend({ page: pageFixture });
+export const screenshotTest = test.extend({ page: screenshotFixture });
+`;
+  const aliases = extractAliasesFromSource(content);
+  assertEquals(aliases, ["browserTest", "screenshotTest"]);
+});
+
+Deno.test("extractAliasesFromSource finds chained extend aliases", () => {
+  const content = `
+const withAuth = test.extend({ auth: authFixture });
+const withBoth = withAuth.extend({ db: dbFixture });
+`;
+  const aliases = extractAliasesFromSource(content);
+  assertEquals(aliases, ["withAuth", "withBoth"]);
+});
+
+Deno.test("extractAliasesFromSource finds non-convention names", () => {
+  const content = `
+export const scenario = test.extend({ browser: browserFixture });
+const check = scenario.extend({ validator: validatorFixture });
+`;
+  const aliases = extractAliasesFromSource(content);
+  assertEquals(aliases, ["scenario", "check"]);
+});
+
+Deno.test("extractAliasesFromSource returns empty for files without extend", () => {
+  const content = `
+import { test } from "@glubean/sdk";
+export const health = test("health", async (ctx) => {});
+`;
+  assertEquals(extractAliasesFromSource(content), []);
+});
+
+Deno.test("extractAliasesFromSource ignores extend in comments", () => {
+  const content = `
+// const commented = test.extend({ page: fixture });
+export const real = test.extend({ page: fixture });
+`;
+  const aliases = extractAliasesFromSource(content);
+  assertEquals(aliases, ["real"]);
+});
+
+// =============================================================================
+// extractFromSource with explicit customFns
+// =============================================================================
+
+Deno.test("extractFromSource with customFns matches non-convention names", () => {
+  const content = `
+export const login = scenario("login-flow", async (ctx) => {});
+export const checkout = workflow({ id: "checkout", tags: ["e2e"] }, async (ctx) => {});
+`;
+  // Without customFns: convention fallback doesn't match "scenario" or "workflow"
+  assertEquals(extractFromSource(content).length, 0);
+
+  // With customFns: explicit match
+  const result = extractFromSource(content, ["scenario", "workflow"]);
+  assertEquals(result.length, 2);
+  assertEquals(result[0].id, "login-flow");
+  assertEquals(result[1].id, "checkout");
+});
+
+Deno.test("extractFromSource with customFns always includes base test/task", () => {
+  const content = `
+export const health = test("health", async (ctx) => {});
+export const login = scenario("login", async (ctx) => {});
+`;
+  const result = extractFromSource(content, ["scenario"]);
+  assertEquals(result.length, 2);
+  assertEquals(result[0].id, "health");
+  assertEquals(result[1].id, "login");
+});
+
+// =============================================================================
+// isGlubeanFile with explicit customFns
+// =============================================================================
+
+Deno.test("isGlubeanFile with customFns detects non-convention imports", () => {
+  // "scenario" doesn't match *Test/*Task convention
+  assertEquals(
+    isGlubeanFile(`import { scenario } from "./configure.ts";`),
+    false,
+  );
+  // But with customFns, it's recognized
+  assertEquals(
+    isGlubeanFile(`import { scenario } from "./configure.ts";`, ["scenario"]),
+    true,
+  );
 });

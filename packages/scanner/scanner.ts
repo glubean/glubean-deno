@@ -6,6 +6,7 @@
  */
 
 import { isSpecVersionSupported, SPEC_VERSION, SUPPORTED_SPEC_VERSIONS } from "./spec.ts";
+import { extractAliasesFromSource } from "./extractor-static.ts";
 import type { ExportMeta, FileMeta, ScanOptions, ScanResult, ValidationResult } from "./types.ts";
 
 /** File system interface for runtime abstraction */
@@ -36,23 +37,13 @@ export interface Hasher {
 }
 
 /** Metadata extractor interface (runtime-specific) */
-export type MetadataExtractor = (filePath: string) => Promise<ExportMeta[]>;
+export type MetadataExtractor = (filePath: string, customFns?: string[]) => Promise<ExportMeta[]>;
 
 const DEFAULT_SKIP_DIRS = ["node_modules", ".git", "dist", "build", ".deno"];
 const DEFAULT_EXTENSIONS = [".ts"];
 
-/**
- * SDK import patterns to identify Glubean test files.
- */
-const SDK_IMPORT_PATTERNS = [
-  // JSR import: import { test } from "jsr:@glubean/sdk"
-  /import\s+.*from\s+["']jsr:@glubean\/sdk["']/,
-  // Direct import: import { test } from "@glubean/sdk"
-  /import\s+.*from\s+["']@glubean\/sdk["']/,
-  // Re-export from local fixtures or other module (e.g. import { test } from "./fixtures.ts")
-  // Uses \b word boundary to avoid false positives like "testUtils", "latestResults"
-  /import\s+.*\{[^}]*\btest\b[^}]*\}/,
-];
+// File detection uses the `.test.ts` extension as the convention.
+// All *.test.ts files in scanned directories are considered Glubean test files.
 
 /**
  * Scanner class for extracting test metadata from a directory.
@@ -84,6 +75,29 @@ export class Scanner {
     this.hasher = hasher;
     this.specVersion = specVersion;
     this.extractor = extractor;
+  }
+
+  /**
+   * Collect custom function names from `.extend()` calls across all .ts files.
+   * Returns an array of alias names (e.g. ["browserTest", "screenshotTest"]).
+   */
+  private async collectAliases(
+    dir: string,
+    skipDirs: string[] = DEFAULT_SKIP_DIRS,
+    extensions: string[] = DEFAULT_EXTENSIONS,
+  ): Promise<string[] | undefined> {
+    const aliases = new Set<string>();
+    try {
+      for await (const filePath of this.fs.walk(dir, { extensions, skipDirs })) {
+        const content = await this.fs.readText(filePath);
+        for (const alias of extractAliasesFromSource(content)) {
+          aliases.add(alias);
+        }
+      }
+    } catch {
+      // Non-fatal — continue without aliases
+    }
+    return aliases.size > 0 ? [...aliases] : undefined;
   }
 
   /**
@@ -126,8 +140,8 @@ export class Scanner {
       }
     }
 
-    // Check for at least one *.test.ts file with SDK import
-    let foundSdkImport = false;
+    // Check for at least one *.test.ts file
+    let foundTestFile = false;
 
     try {
       for await (
@@ -136,29 +150,19 @@ export class Scanner {
           skipDirs: DEFAULT_SKIP_DIRS,
         })
       ) {
-        // Only consider *.test.ts files
-        if (!filePath.endsWith(".test.ts")) continue;
-
-        const content = await this.fs.readText(filePath);
-
-        for (const pattern of SDK_IMPORT_PATTERNS) {
-          if (pattern.test(content)) {
-            foundSdkImport = true;
-            break;
-          }
+        if (filePath.endsWith(".test.ts")) {
+          foundTestFile = true;
+          break;
         }
-
-        if (foundSdkImport) break;
       }
     } catch (err) {
       errors.push(`Failed to scan directory: ${err}`);
     }
 
-    if (!foundSdkImport) {
+    if (!foundTestFile) {
       errors.push(
-        "No *.test.ts files found with test imports. " +
-          "Ensure your test files are named *.test.ts and import { test } from " +
-          '"@glubean/sdk" or a local fixtures file.',
+        "No *.test.ts files found. " +
+          "Ensure your test files are named *.test.ts.",
       );
     }
 
@@ -211,32 +215,20 @@ export class Scanner {
       );
     }
 
-    // Find all *.test.ts files with SDK import
+    // Phase 1: collect .extend() aliases from all .ts files
+    const aliases = await this.collectAliases(dir, skipDirs, extensions);
+
+    // Phase 2: collect all *.test.ts files
     const testFiles: string[] = [];
     for await (const filePath of this.fs.walk(dir, { extensions, skipDirs })) {
-      // Only consider *.test.ts files
       if (!filePath.endsWith(".test.ts")) continue;
-
-      const content = await this.fs.readText(filePath);
-
-      // Quick check for SDK import
-      let hasSdkImport = false;
-      for (const pattern of SDK_IMPORT_PATTERNS) {
-        if (pattern.test(content)) {
-          hasSdkImport = true;
-          break;
-        }
-      }
-
-      if (hasSdkImport) {
-        testFiles.push(filePath);
-      }
+      testFiles.push(filePath);
     }
 
     // Extract metadata from each file using runtime extraction
     for (const filePath of testFiles) {
       try {
-        const exports = await this.extractor(filePath);
+        const exports = await this.extractor(filePath, aliases);
 
         if (exports.length > 0) {
           const relativePath = this.fs.relative(dir, filePath);
@@ -263,7 +255,7 @@ export class Scanner {
     if (Object.keys(files).length === 0) {
       warnings.push(
         "No Glubean test files found. " +
-          'Ensure your test files are named *.test.ts, import from "@glubean/sdk", and export test().',
+          "Ensure your test files are named *.test.ts and export test().",
       );
     }
 

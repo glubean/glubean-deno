@@ -20,6 +20,11 @@
  * @module static
  */
 
-export { createStaticExtractor, extractFromSource, isGlubeanFile } from "./extractor-static.ts";
+export {
+  createStaticExtractor,
+  extractAliasesFromSource,
+  extractFromSource,
+  isGlubeanFile,
+} from "./extractor-static.ts";
 
 export type { ExportMeta } from "./types.ts";

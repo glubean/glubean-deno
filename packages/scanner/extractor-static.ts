@@ -25,33 +25,61 @@ import type { ExportMeta } from "./types.ts";
 // SDK import detection
 // ---------------------------------------------------------------------------
 
-const SDK_IMPORT_PATTERNS = [
+/** Base function names that are always recognized. */
+const BASE_FNS = ["test", "task"];
+
+/** Direct SDK module import patterns. */
+const SDK_MODULE_PATTERNS = [
   // jsr:@glubean/sdk or jsr:@glubean/sdk@0.5.0 (with optional version)
   /import\s+.*from\s+["']jsr:@glubean\/sdk(?:@[^"']*)?["']/,
   // @glubean/sdk (bare specifier via import map)
   /import\s+.*from\s+["']@glubean\/sdk(?:\/[^"']*)?["']/,
 ];
 
+/** Escape special regex chars in a string. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
- * Check if a file's content imports from `@glubean/sdk`.
+ * Build a regex alternation from function names: `"test|task|browserTest"`.
+ * When no custom names are provided, falls back to a convention pattern
+ * that matches `test`, `task`, `*Test`, and `*Task`.
+ */
+function buildFnAlternation(customFns?: string[]): string {
+  if (customFns && customFns.length > 0) {
+    const all = [...new Set([...BASE_FNS, ...customFns])];
+    return all.map(escapeRegExp).join("|");
+  }
+  // Convention fallback: test | task | *Test | *Task
+  return "\\w*(?:Test|Task)|test|task";
+}
+
+/**
+ * Check if a file's content looks like a Glubean test/task file.
  *
  * Useful as a fast guard before running the more expensive `extractFromSource`.
- * Detects both JSR (`jsr:@glubean/sdk`) and bare specifier (`@glubean/sdk`)
- * import forms.
+ *
+ * Detection layers (any match → true):
+ * 1. Direct SDK module import (`jsr:@glubean/sdk`, `@glubean/sdk`)
+ * 2. Named import of a known function name (auto-detected aliases or convention)
  *
  * @param content - TypeScript source code
- * @returns `true` if the source imports from `@glubean/sdk`
- *
- * @example
- * ```ts
- * const code = await Deno.readTextFile("tests/api.test.ts");
- * if (isGlubeanFile(code)) {
- *   const tests = extractFromSource(code);
- * }
- * ```
+ * @param customFns - Additional function names discovered via `extractAliasesFromSource`.
+ *                    When provided, these are checked in imports alongside the base names.
+ *                    When omitted, falls back to `*Test` / `*Task` convention matching.
+ * @returns `true` if the source looks like a Glubean file
  */
-export function isGlubeanFile(content: string): boolean {
-  return SDK_IMPORT_PATTERNS.some((p) => p.test(content));
+export function isGlubeanFile(content: string, customFns?: string[]): boolean {
+  // Layer 1: Direct SDK module import
+  if (SDK_MODULE_PATTERNS.some((p) => p.test(content))) return true;
+
+  // Layer 2: Named import of a known function name
+  const alt = buildFnAlternation(customFns);
+  const importPattern = new RegExp(
+    `import\\s+.*\\{[^}]*\\b(${alt})\\b[^}]*\\}`,
+  );
+  return importPattern.test(content);
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +365,36 @@ function parseTestDeclaration(
 }
 
 // ---------------------------------------------------------------------------
+// Alias discovery (auto-detect test.extend / task.extend)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract custom function names created by `.extend()` calls.
+ *
+ * Scans source for patterns like:
+ * - `const browserTest = test.extend({...})`
+ * - `export const screenshotTest = browserTest.extend({...})`
+ *
+ * Returns the variable names (e.g. `["browserTest", "screenshotTest"]`).
+ * These can then be passed to `extractFromSource()` and `isGlubeanFile()`
+ * so they recognize `export const x = browserTest(...)` in other files.
+ *
+ * @param content - TypeScript source code
+ * @returns Array of discovered alias names
+ */
+export function extractAliasesFromSource(content: string): string[] {
+  const stripped = stripComments(content);
+  // Match: [export] const NAME = SOMETHING.extend(
+  const pattern = /(?:export\s+)?const\s+(\w+)\s*=\s*\w+\.extend\s*\(/g;
+  const aliases: string[] = [];
+  let m;
+  while ((m = pattern.exec(stripped)) !== null) {
+    aliases.push(m[1]);
+  }
+  return aliases;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -353,21 +411,22 @@ function parseTestDeclaration(
  * This is a pure function — no file system or runtime access needed.
  *
  * @param content - TypeScript source code
+ * @param customFns - Additional function names discovered via `extractAliasesFromSource`.
+ *                    When provided, these names are matched alongside `test` and `task`.
+ *                    When omitted, falls back to `*Test` / `*Task` convention matching.
  * @returns Array of extracted export metadata
- *
- * @example
- * ```ts
- * const content = await fs.readFile("tests/api.test.ts", "utf-8");
- * const exports = extractFromSource(content);
- * console.log(`Found ${exports.length} test exports`);
- * ```
  */
-export function extractFromSource(content: string): ExportMeta[] {
+export function extractFromSource(content: string, customFns?: string[]): ExportMeta[] {
   const results: ExportMeta[] = [];
   const stripped = stripComments(content);
 
-  // Collect all `export const NAME = test` positions
-  const exportPattern = /export\s+const\s+(\w+)\s*=\s*test/g;
+  // Build the function-name alternation — either explicit aliases or convention fallback
+  const alt = buildFnAlternation(customFns);
+  const exportPattern = new RegExp(
+    `export\\s+const\\s+(\\w+)\\s*=\\s*(${alt})\\b`,
+    "g",
+  );
+
   const matches: { exportName: string; offset: number; afterTest: number }[] = [];
 
   let m;
@@ -381,7 +440,7 @@ export function extractFromSource(content: string): ExportMeta[] {
 
   for (let i = 0; i < matches.length; i++) {
     const { exportName, offset, afterTest } = matches[i];
-    // Scope from right after "test" to the start of the next export (or EOF)
+    // Scope from right after the function name to the start of the next export (or EOF)
     const endOffset = i + 1 < matches.length ? matches[i + 1].offset : stripped.length;
     const scope = stripped.substring(afterTest, endOffset);
     const line = getLineNumber(stripped, offset);
@@ -396,28 +455,24 @@ export function extractFromSource(content: string): ExportMeta[] {
 /**
  * Create a static metadata extractor that uses file system to read content.
  *
- * This is a factory function that creates a MetadataExtractor compatible with
- * the Scanner class.
+ * Aliases can be supplied at two levels:
+ * - `customFns` (construction-time): baked-in aliases known upfront.
+ * - `runtimeFns` (call-time): aliases discovered during a Scanner two-phase
+ *   scan. These are merged with `customFns` so the extractor benefits from
+ *   aliases discovered after construction.
  *
  * @param readFile - Function to read file content as string
+ * @param customFns - Additional function names (from alias discovery)
  * @returns MetadataExtractor function
- *
- * @example
- * ```ts
- * import * as fs from "node:fs/promises";
- *
- * const extractor = createStaticExtractor(
- *   (path) => fs.readFile(path, "utf-8")
- * );
- *
- * const scanner = new Scanner(nodeFs, nodeHasher, "2.0", extractor);
- * ```
  */
 export function createStaticExtractor(
   readFile: (path: string) => Promise<string>,
-): (filePath: string) => Promise<ExportMeta[]> {
-  return async (filePath: string): Promise<ExportMeta[]> => {
+  customFns?: string[],
+): (filePath: string, runtimeFns?: string[]) => Promise<ExportMeta[]> {
+  return async (filePath: string, runtimeFns?: string[]): Promise<ExportMeta[]> => {
     const content = await readFile(filePath);
-    return extractFromSource(content);
+    // Merge construction-time and call-time aliases
+    const merged = customFns || runtimeFns ? [...new Set([...(customFns ?? []), ...(runtimeFns ?? [])])] : undefined;
+    return extractFromSource(content, merged);
   };
 }

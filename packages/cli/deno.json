@@ -1,6 +1,6 @@
 {
   "name": "@glubean/cli",
-  "version": "0.11.18",
+  "version": "0.11.19",
   "exports": "./mod.ts",
   "license": "MIT",
   "description": "Glubean CLI - Run and sync API tests from the command line",
