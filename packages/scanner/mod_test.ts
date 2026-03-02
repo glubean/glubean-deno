@@ -92,8 +92,8 @@ Deno.test("Scanner.validate returns warnings for missing deno.json", async () =>
   );
 });
 
-Deno.test("Scanner.validate returns error when no SDK imports found", async () => {
-  // Mock FS with deno.json but no SDK imports
+Deno.test("Scanner.validate succeeds when .test.ts exists (no content check)", async () => {
+  // .test.ts extension is sufficient — validate no longer inspects file content
   const mockFs = {
     ...denoFs,
     exists: (path: string) => Promise.resolve(path.endsWith("deno.json")),
@@ -119,11 +119,8 @@ Deno.test("Scanner.validate returns error when no SDK imports found", async () =
   );
   const result = await mockScanner.validate("/fake/dir");
 
-  assertEquals(result.valid, false);
-  assertEquals(
-    result.errors.some((e) => e.includes("@glubean/sdk")),
-    true,
-  );
+  assertEquals(result.valid, true);
+  assertEquals(result.errors.length, 0);
 });
 
 Deno.test("Scanner.validate detects SDK imports", async () => {
@@ -264,34 +261,31 @@ Deno.test("Pattern 3 matches: import { test, configure } from './fixtures.ts'", 
   assertEquals(result.errors.length, 0);
 });
 
-Deno.test("Pattern 3 does NOT match: import { testUtils } from './helpers.ts'", async () => {
+// validate() no longer inspects file content — .test.ts extension is sufficient.
+// These patterns all pass validation because the mock yields a .test.ts file.
+
+Deno.test("validate passes regardless of import content (testUtils)", async () => {
   const result = await validateWithContent(
     'import { testUtils } from "./helpers.ts";',
   );
-  assertEquals(result.valid, false);
-  assertEquals(result.errors.length > 0, true);
+  assertEquals(result.valid, true);
 });
 
-Deno.test("Pattern 3 does NOT match: import { latestResults } from './data.ts'", async () => {
+Deno.test("validate passes regardless of import content (latestResults)", async () => {
   const result = await validateWithContent(
     'import { latestResults } from "./data.ts";',
   );
-  assertEquals(result.valid, false);
-  assertEquals(result.errors.length > 0, true);
+  assertEquals(result.valid, true);
 });
 
-Deno.test("Pattern 3 does NOT match: import { testHelper, testRunner } from './utils.ts'", async () => {
+Deno.test("validate passes regardless of import content (testHelper, testRunner)", async () => {
   const result = await validateWithContent(
     'import { testHelper, testRunner } from "./utils.ts";',
   );
-  assertEquals(result.valid, false);
-  assertEquals(result.errors.length > 0, true);
+  assertEquals(result.valid, true);
 });
 
-Deno.test("Validation message mentions local fixtures file", async () => {
+Deno.test("validate passes regardless of import content (no imports)", async () => {
   const result = await validateWithContent("// no imports");
-  assertEquals(result.valid, false);
-  const errorMsg = result.errors.join(" ");
-  assertEquals(errorMsg.includes("fixtures"), true);
-  assertEquals(errorMsg.includes("@glubean/sdk"), true);
+  assertEquals(result.valid, true);
 });
