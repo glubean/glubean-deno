@@ -1,6 +1,6 @@
 {
   "name": "@glubean/sdk",
-  "version": "0.11.7",
+  "version": "0.11.8",
   "exports": {
     ".": "./mod.ts",
     "./data": "./data.ts",
