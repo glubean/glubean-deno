@@ -45,3 +45,7 @@ glubean-dev
 MEMORY_PROFILING_SUMMARY.md
 packages/runner/IMPROVEMENTS.md
 packages/worker/REVIEW.md
+
+# Claude Code
+.claude/
+*.code-workspace
