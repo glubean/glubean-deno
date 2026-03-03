@@ -17,10 +17,10 @@ import { basename, dirname, resolve, toFileUrl } from "@std/path";
 import { parse } from "@std/dotenv/parse";
 import { crypto } from "@std/crypto";
 import { encodeHex } from "@std/encoding/hex";
-import { LOCAL_RUN_DEFAULTS, resolveModuleTests, TestExecutor, toSingleExecutionOptions } from "@glubean/runner";
-import type { ResolvedTest, SharedRunConfig } from "@glubean/runner";
-import { createStaticScanner, scan } from "@glubean/scanner";
-import type { BundleMetadata, FileMeta, ScanResult } from "@glubean/scanner";
+import { LOCAL_RUN_DEFAULTS, TestExecutor, toSingleExecutionOptions } from "@glubean/runner";
+import type { SharedRunConfig } from "@glubean/runner";
+import { createStaticScanner, extractFromSource, scan } from "@glubean/scanner";
+import type { BundleMetadata, ExportMeta, FileMeta, ScanResult } from "@glubean/scanner";
 import { DEFAULT_GENERATED_BY, MCP_PACKAGE_VERSION } from "./version.ts";
 
 type Vars = Record<string, string>;
@@ -139,12 +139,12 @@ async function buildMetadata(
 
 export async function discoverTestsFromFile(filePath: string): Promise<{
   fileUrl: string;
-  tests: ResolvedTest[];
+  tests: ExportMeta[];
 }> {
   const absolutePath = resolve(filePath);
   const fileUrl = toFileUrl(absolutePath).toString();
-  const module = await import(fileUrl);
-  const tests = resolveModuleTests(module);
+  const content = await Deno.readTextFile(absolutePath);
+  const tests = extractFromSource(content);
   return { fileUrl, tests };
 }
 
@@ -441,7 +441,11 @@ export async function runLocalTestsFromFile(args: {
     failFast: Boolean(args.stopOnFailure),
     concurrency: Math.max(1, args.concurrency ?? 1),
   };
-  const executor = TestExecutor.fromSharedConfig(shared);
+  const denoJsonPath = resolve(projectRoot, "deno.json");
+  const executor = TestExecutor.fromSharedConfig(shared, {
+    configPath: denoJsonPath,
+    cwd: projectRoot,
+  });
 
   const concurrency = shared.concurrency;
   const stopOnFailure = shared.failFast;

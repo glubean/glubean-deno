@@ -15,6 +15,15 @@ const FIXTURE_DIR = resolve(
   "simple-project",
 );
 
+// When running in the oss workspace, the harness subprocess needs the
+// workspace's deno.json to resolve local @glubean/* packages.
+// GLUBEAN_DEV_CONFIG tells the executor to use this config instead of
+// the test project's deno.json for harness import resolution.
+if (!Deno.env.get("GLUBEAN_DEV_CONFIG")) {
+  const workspaceRoot = resolve(new URL(".", import.meta.url).pathname, "..", "..");
+  Deno.env.set("GLUBEAN_DEV_CONFIG", resolve(workspaceRoot, "deno.json"));
+}
+
 // ---------------------------------------------------------------------------
 // Layer 1a: Pure helper unit tests
 // ---------------------------------------------------------------------------
@@ -70,7 +79,7 @@ Deno.test("loadEnvFile parses secrets file", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Layer 1b: discoverTestsFromFile (dynamic import, no subprocess)
+// Layer 1b: discoverTestsFromFile (static analysis, no import needed)
 // ---------------------------------------------------------------------------
 
 Deno.test("discoverTestsFromFile finds exported tests", async () => {
