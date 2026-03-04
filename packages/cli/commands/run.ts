@@ -593,41 +593,77 @@ export async function runCommand(
   const failureLimit = effectiveRun.failAfter ??
     (effectiveRun.failFast ? 1 : undefined);
 
-  // Track current file for per-file grouping headers in multi-file mode
-  let currentFile = "";
+  // ── Group tests by file for batch execution ──
+  // Running all tests from the same file in a single subprocess preserves
+  // module-level state (let variables) between tests — critical for
+  // integration test chains that share setup across tests.
+  const fileGroups = new Map<string, typeof testsToRun>();
+  for (const entry of testsToRun) {
+    const group = fileGroups.get(entry.filePath) || [];
+    group.push(entry);
+    fileGroups.set(entry.filePath, group);
+  }
 
-  for (
-    const {
-      filePath: testFilePath,
-      exportName,
-      test: testItem,
-    } of testsToRun
-  ) {
+  /**
+   * Format a URL for compact display:
+   * - strip protocol + host, show only pathname
+   */
+  const compactUrl = (url: string): string => {
+    try {
+      const u = new URL(url);
+      return u.pathname + (u.search || "");
+    } catch {
+      return url;
+    }
+  };
+
+  /** Color a status code: 2xx green, 4xx yellow, 5xx red */
+  const colorStatus = (status: number): string => {
+    if (status >= 500) return `${colors.red}${status}${colors.reset}`;
+    if (status >= 400) return `${colors.yellow}${status}${colors.reset}`;
+    return `${colors.green}${status}${colors.reset}`;
+  };
+
+  for (const [groupFilePath, fileTests] of fileGroups) {
     // Print per-file grouping header in multi-file mode
-    if (isMultiFile && testFilePath !== currentFile) {
-      currentFile = testFilePath;
-      const relPath = relative(Deno.cwd(), testFilePath);
+    if (isMultiFile) {
+      const relPath = relative(Deno.cwd(), groupFilePath);
       console.log(`${colors.bold}📁 ${relPath}${colors.reset}`);
     }
 
-    // Check if we should stop early
+    // Check if we should skip entire file due to fail-fast
     if (failureLimit !== undefined && failed >= failureLimit) {
-      skipped++;
-      const testName = testItem.meta.name || testItem.meta.id;
-      console.log(
-        `  ${colors.yellow}○${colors.reset} ${testName} ${colors.dim}(skipped — fail-fast)${colors.reset}`,
-      );
+      for (const { test } of fileTests) {
+        skipped++;
+        const name = test.meta.name || test.meta.id;
+        console.log(
+          `  ${colors.yellow}○${colors.reset} ${name} ${colors.dim}(skipped — fail-fast)${colors.reset}`,
+        );
+      }
       continue;
     }
-    const testId = testItem.meta.id;
-    const testName = testItem.meta.name || testItem.meta.id;
-    const tags = testItem.meta.tags?.length ? ` ${colors.dim}[${testItem.meta.tags.join(", ")}]${colors.reset}` : "";
 
-    console.log(`  ${colors.cyan}●${colors.reset} ${testName}${tags}`);
+    // Build batch: all test IDs from this file
+    const testIds = fileTests.map((ft) => ft.test.meta.id);
+    const testMap = new Map(
+      fileTests.map((ft) => [ft.test.meta.id, ft]),
+    );
+    const testFileUrl = toFileUrl(groupFilePath).toString();
 
-    const startTime = Date.now();
-    const testEvents: ExecutionEvent[] = [];
-    const assertions: Array<{
+    // Batch timeout: sum of per-test timeouts
+    const batchTimeout = fileTests.reduce((sum, ft) => {
+      return sum +
+        (normalizePositiveTimeoutMs(ft.test.meta.timeout) ??
+          shared.perTestTimeoutMs ?? 30_000);
+    }, 0);
+
+    // Per-test state (reset on each "start" event)
+    let testId = "";
+    let testName = "";
+    let testItem: (typeof fileTests)[0]["test"] | null = null;
+    let startTime = Date.now();
+    let testEvents: ExecutionEvent[] = [];
+    let assertions: Array<{
       passed: boolean;
       message: string;
       actual?: unknown;
@@ -636,13 +672,9 @@ export async function runCommand(
     let success = false;
     let errorMsg: string | undefined;
     let peakMemoryMB: string | undefined;
-
-    // Per-step tracking for compact output
-    let _currentStepName = "";
-    let _currentStepIndex = 0;
-    let _currentStepTotal = 0;
     let stepAssertionCount = 0;
     let stepTraceLines: string[] = [];
+    let testStarted = false;
 
     // Helper to add log entry for file output
     const addLogEntry = (
@@ -662,54 +694,177 @@ export async function runCommand(
       }
     };
 
-    /**
-     * Format a URL for compact display:
-     * - strip protocol + host, show only pathname (if long)
-     * - keep full if short enough
-     */
-    const compactUrl = (url: string): string => {
-      try {
-        const u = new URL(url);
-        // Show pathname only (e.g. /auth/login) for compact display
-        return u.pathname + (u.search || "");
-      } catch {
-        return url;
+    /** Finalize the current test: collect results, print status */
+    const finalizeTest = () => {
+      if (!testStarted) return;
+      testStarted = false;
+      const duration = Date.now() - startTime;
+      const allAssertionsPassed = assertions.every((a) => a.passed);
+      const finalSuccess = success && allAssertionsPassed;
+
+      // Collect for result JSON output
+      collectedRuns.push({
+        testId,
+        testName,
+        tags: testItem?.meta.tags,
+        filePath: groupFilePath,
+        events: testEvents,
+        success: finalSuccess,
+        durationMs: duration,
+        groupId: testItem?.meta.groupId,
+      });
+
+      addLogEntry("result", finalSuccess ? "PASSED" : "FAILED", {
+        duration,
+        success: finalSuccess,
+        peakMemoryMB,
+      });
+
+      // Track overall peak memory
+      const peakMB = peakMemoryMB ? parseFloat(peakMemoryMB) : 0;
+      if (peakMB > overallPeakMemoryMB) {
+        overallPeakMemoryMB = peakMB;
+      }
+
+      // Build per-test mini-stats
+      const testHttpCalls = testEvents.filter((e) => e.type === "trace")
+        .length;
+      const testSteps = testEvents.filter((e) => e.type === "step_end")
+        .length;
+      const miniStats: string[] = [];
+      miniStats.push(`${duration}ms`);
+      if (testHttpCalls > 0) miniStats.push(`${testHttpCalls} calls`);
+      if (assertions.length > 0) {
+        miniStats.push(`${assertions.length} checks`);
+      }
+      if (testSteps > 0) miniStats.push(`${testSteps} steps`);
+
+      if (finalSuccess) {
+        console.log(
+          `    ${colors.green}✓ PASSED${colors.reset} ${colors.dim}(${miniStats.join(", ")})${colors.reset}`,
+        );
+        passed++;
+      } else {
+        console.log(
+          `    ${colors.red}✗ FAILED${colors.reset} ${colors.dim}(${miniStats.join(", ")})${colors.reset}`,
+        );
+        failed++;
+      }
+
+      // Warn if memory usage is approaching cloud runner limits
+      if (peakMB > MEMORY_WARNING_THRESHOLD_MB) {
+        if (peakMB > CLOUD_MEMORY_LIMITS.free) {
+          console.log(
+            `      ${colors.yellow}⚠ Memory (${peakMemoryMB} MB) exceeds Free cloud runner limit (${CLOUD_MEMORY_LIMITS.free} MB).${colors.reset}`,
+          );
+          console.log(
+            `      ${colors.dim}  This test will OOM on Free runners. Use Pro runners or self-hosted workers.${colors.reset}`,
+          );
+        } else {
+          console.log(
+            `      ${colors.yellow}⚠ Memory (${peakMemoryMB} MB) is approaching Free cloud runner limit (${CLOUD_MEMORY_LIMITS.free} MB).${colors.reset}`,
+          );
+          console.log(
+            `      ${colors.dim}  Consider optimizing or using self-hosted workers for headroom.${colors.reset}`,
+          );
+        }
+      }
+
+      // Show failed assertions
+      for (const assertion of assertions) {
+        if (!assertion.passed) {
+          console.log(
+            `      ${colors.red}✗ ${assertion.message}${colors.reset}`,
+          );
+          if (
+            assertion.expected !== undefined ||
+            assertion.actual !== undefined
+          ) {
+            if (assertion.expected !== undefined) {
+              console.log(
+                `        ${colors.dim}Expected: ${JSON.stringify(assertion.expected)}${colors.reset}`,
+              );
+            }
+            if (assertion.actual !== undefined) {
+              console.log(
+                `        ${colors.dim}Actual:   ${JSON.stringify(assertion.actual)}${colors.reset}`,
+              );
+            }
+          }
+        }
+      }
+
+      // Show error if any
+      if (errorMsg) {
+        console.log(`      ${colors.red}Error: ${errorMsg}${colors.reset}`);
       }
     };
 
-    /** Color a status code: 2xx green, 4xx yellow, 5xx red */
-    const colorStatus = (status: number): string => {
-      if (status >= 500) return `${colors.red}${status}${colors.reset}`;
-      if (status >= 400) return `${colors.yellow}${status}${colors.reset}`;
-      return `${colors.green}${status}${colors.reset}`;
-    };
-
-    // Stream events — pass meta.id so the harness can find builder tests.
-    // Also pass exportName as fallback for non-deterministic tests (test.pick)
-    // where the testId from discovery may not match the harness re-import.
-    const testFileUrl = toFileUrl(testFilePath).toString();
-    const effectiveTimeout = normalizePositiveTimeoutMs(testItem.meta.timeout) ??
-      shared.perTestTimeoutMs;
+    // Stream events — batch all tests from this file in a single subprocess
     for await (
       const event of executor.run(
         testFileUrl,
-        testId,
+        "",
         {
           vars: envVars,
           secrets,
         },
-        { ...toSingleExecutionOptions(shared), timeout: effectiveTimeout, exportName },
+        {
+          ...toSingleExecutionOptions(shared),
+          timeout: batchTimeout,
+          testIds,
+        },
       )
     ) {
-      // Collect every event for result JSON and summary
-      testEvents.push(event);
-
       switch (event.type) {
+        case "start": {
+          // ── New test boundary ──
+          const entry = testMap.get(event.id);
+          testId = event.id;
+          testName = entry?.test.meta.name || event.name || event.id;
+          testItem = entry?.test || null;
+          startTime = Date.now();
+          testEvents = [];
+          assertions = [];
+          success = false;
+          errorMsg = undefined;
+          peakMemoryMB = undefined;
+          stepAssertionCount = 0;
+          stepTraceLines = [];
+          testStarted = true;
+
+          // Print test header
+          const tags = testItem?.meta.tags?.length
+            ? ` ${colors.dim}[${testItem.meta.tags.join(", ")}]${colors.reset}`
+            : "";
+          console.log(
+            `  ${colors.cyan}●${colors.reset} ${testName}${tags}`,
+          );
+          break;
+        }
+
+        case "status":
+          success = event.status === "completed";
+          if (event.error) {
+            errorMsg = event.error;
+            addLogEntry("error", event.error);
+          }
+          if (event.peakMemoryMB) peakMemoryMB = event.peakMemoryMB;
+          // Finalize this test
+          finalizeTest();
+          break;
+
+        case "error":
+          success = false;
+          if (!errorMsg) {
+            errorMsg = event.message;
+          }
+          addLogEntry("error", event.message);
+          break;
+
         case "log":
           addLogEntry("log", event.message);
-          // Filter out internal harness messages from console display
           if (event.message.startsWith("Loading test module:")) break;
-          // Always print ctx.log to console
           console.log(`      ${colors.dim}${event.message}${colors.reset}`);
           break;
 
@@ -726,7 +881,6 @@ export async function runCommand(
             actual: event.actual,
             expected: event.expected,
           });
-          // Verbose: show each assertion inline
           if (effectiveRun.verbose) {
             const icon = event.passed ? `${colors.green}✓${colors.reset}` : `${colors.red}✗${colors.reset}`;
             console.log(
@@ -738,30 +892,24 @@ export async function runCommand(
         case "trace": {
           const traceMsg = `${event.data.method} ${event.data.url} → ${event.data.status} (${event.data.duration}ms)`;
           addLogEntry("trace", traceMsg, event.data);
-          // Collect for .glubean/traces.json
           traceCollector.push({
             testId,
             method: event.data.method,
             url: event.data.url,
             status: event.data.status,
           });
-          // Default: compact trace line (shown under step)
           const compactTrace = `${colors.dim}${event.data.method}${colors.reset} ${
             compactUrl(event.data.url)
           } ${colors.dim}→${colors.reset} ${
             colorStatus(event.data.status)
           } ${colors.dim}${event.data.duration}ms${colors.reset}`;
           stepTraceLines.push(compactTrace);
-          // Print immediately (always visible, not just verbose)
-          console.log(`      ${colors.dim}↳${colors.reset} ${compactTrace}`);
-          // Verbose: also show request/response bodies
+          console.log(
+            `      ${colors.dim}↳${colors.reset} ${compactTrace}`,
+          );
           if (effectiveRun.verbose && event.data.requestBody) {
             console.log(
-              `        ${colors.dim}req: ${
-                JSON.stringify(
-                  event.data.requestBody,
-                ).slice(0, 120)
-              }${colors.reset}`,
+              `        ${colors.dim}req: ${JSON.stringify(event.data.requestBody).slice(0, 120)}${colors.reset}`,
             );
           }
           if (effectiveRun.verbose && event.data.responseBody) {
@@ -775,11 +923,14 @@ export async function runCommand(
 
         case "action": {
           const a = event.data;
-          // Skip http:request actions — already displayed by the trace handler
           if (a.category === "http:request") break;
           const statusColor = a.status === "ok" ? colors.green : a.status === "error" ? colors.red : colors.yellow;
           const statusIcon = a.status === "ok" ? "✓" : a.status === "error" ? "✗" : "⏱";
-          addLogEntry("action", `[${a.category}] ${a.target} ${a.duration}ms ${a.status}`, a);
+          addLogEntry(
+            "action",
+            `[${a.category}] ${a.target} ${a.duration}ms ${a.status}`,
+            a,
+          );
           console.log(
             `      ${colors.dim}↳${colors.reset} ${colors.cyan}${a.category}${colors.reset} ${a.target} ${colors.dim}${a.duration}ms${colors.reset} ${statusColor}${statusIcon}${colors.reset}`,
           );
@@ -814,7 +965,6 @@ export async function runCommand(
             unit: event.unit,
             tags: event.tags,
           });
-          // Only show non-auto metrics by default, all in verbose
           if (effectiveRun.verbose) {
             console.log(
               `      ${colors.blue}📊 ${metricMsg}${colors.reset}${tagStr}`,
@@ -824,13 +974,8 @@ export async function runCommand(
         }
 
         case "step_start":
-          // Reset per-step counters
-          _currentStepName = event.name;
-          _currentStepIndex = event.index;
-          _currentStepTotal = event.total;
           stepAssertionCount = 0;
           stepTraceLines = [];
-          // Always show step start (compact)
           console.log(
             `    ${colors.cyan}┌${colors.reset} ${colors.dim}step ${
               event.index + 1
@@ -844,7 +989,6 @@ export async function runCommand(
             : event.status === "failed"
             ? `${colors.red}✗${colors.reset}`
             : `${colors.yellow}○${colors.reset}`;
-          // Compact step summary line
           const stepParts: string[] = [];
           if (event.durationMs !== undefined) {
             stepParts.push(`${event.durationMs}ms`);
@@ -865,7 +1009,6 @@ export async function runCommand(
         }
 
         case "summary":
-          // Aggregate per-test summary into run-level stats
           runStats.httpRequestTotal += event.data.httpRequestTotal;
           runStats.httpErrorTotal += event.data.httpErrorTotal;
           runStats.assertionTotal += event.data.assertionTotal;
@@ -878,7 +1021,6 @@ export async function runCommand(
           break;
 
         case "warning": {
-          // Always show warnings (they are important)
           const warnIcon = event.condition ? `${colors.green}✓${colors.reset}` : `${colors.yellow}⚠${colors.reset}`;
           console.log(
             `      ${warnIcon} ${colors.yellow}${event.message}${colors.reset}`,
@@ -894,137 +1036,16 @@ export async function runCommand(
             );
           }
           break;
-
-        case "status":
-          success = event.status === "completed";
-          if (event.error) {
-            errorMsg = event.error;
-            addLogEntry("error", event.error);
-          }
-          if (event.peakMemoryMB) peakMemoryMB = event.peakMemoryMB;
-          break;
-
-        case "error":
-          success = false;
-          // Only set errorMsg if not already set by a "status" event
-          // (avoid overwriting the real error with a generic "Process exited with code N")
-          if (!errorMsg) {
-            errorMsg = event.message;
-          }
-          addLogEntry("error", event.message);
-          break;
       }
+
+      // Collect every event for result JSON and summary
+      if (testStarted) testEvents.push(event);
     }
 
-    const duration = Date.now() - startTime;
-
-    // Check if all assertions passed
-    const allAssertionsPassed = assertions.every((a) => a.passed);
-    const finalSuccess = success && allAssertionsPassed;
-
-    // Collect for result JSON output
-    collectedRuns.push({
-      testId,
-      testName,
-      tags: testItem.meta.tags,
-      filePath: testFilePath,
-      events: testEvents,
-      success: finalSuccess,
-      durationMs: duration,
-      groupId: testItem.meta.groupId,
-    });
-
-    // Add result entry for file output
-    addLogEntry("result", finalSuccess ? "PASSED" : "FAILED", {
-      duration,
-      success: finalSuccess,
-      peakMemoryMB,
-    });
-
-    // Track overall peak memory
-    const peakMB = peakMemoryMB ? parseFloat(peakMemoryMB) : 0;
-    if (peakMB > overallPeakMemoryMB) {
-      overallPeakMemoryMB = peakMB;
-    }
-
-    // Build per-test mini-stats
-    const testAssertions = assertions.length;
-    const _testTraces = traceCollector.filter((t) => t.testId === testId).length -
-      (traceCollector.filter((t) => t.testId === testId).length -
-        stepTraceLines.length);
-    const testHttpCalls = testEvents.filter((e) => e.type === "trace").length;
-    const testSteps = testEvents.filter((e) => e.type === "step_end").length;
-
-    const miniStats: string[] = [];
-    miniStats.push(`${duration}ms`);
-    if (testHttpCalls > 0) miniStats.push(`${testHttpCalls} calls`);
-    if (testAssertions > 0) miniStats.push(`${testAssertions} checks`);
-    if (testSteps > 0) miniStats.push(`${testSteps} steps`);
-
-    if (finalSuccess) {
-      console.log(
-        `    ${colors.green}✓ PASSED${colors.reset} ${colors.dim}(${miniStats.join(", ")})${colors.reset}`,
-      );
-      passed++;
-    } else {
-      console.log(
-        `    ${colors.red}✗ FAILED${colors.reset} ${colors.dim}(${miniStats.join(", ")})${colors.reset}`,
-      );
-      failed++;
-    }
-
-    // Warn if memory usage is approaching cloud runner limits
-    if (peakMB > MEMORY_WARNING_THRESHOLD_MB) {
-      if (peakMB > CLOUD_MEMORY_LIMITS.free) {
-        console.log(
-          `      ${colors.yellow}⚠ Memory (${peakMemoryMB} MB) exceeds Free cloud runner limit (${CLOUD_MEMORY_LIMITS.free} MB).${colors.reset}`,
-        );
-        console.log(
-          `      ${colors.dim}  This test will OOM on Free runners. Use Pro runners or self-hosted workers.${colors.reset}`,
-        );
-      } else {
-        console.log(
-          `      ${colors.yellow}⚠ Memory (${peakMemoryMB} MB) is approaching Free cloud runner limit (${CLOUD_MEMORY_LIMITS.free} MB).${colors.reset}`,
-        );
-        console.log(
-          `      ${colors.dim}  Consider optimizing or using self-hosted workers for headroom.${colors.reset}`,
-        );
-      }
-    }
-
-    // Show failed assertions
-    for (const assertion of assertions) {
-      if (!assertion.passed) {
-        console.log(`      ${colors.red}✗ ${assertion.message}${colors.reset}`);
-        if (
-          assertion.expected !== undefined ||
-          assertion.actual !== undefined
-        ) {
-          if (assertion.expected !== undefined) {
-            console.log(
-              `        ${colors.dim}Expected: ${
-                JSON.stringify(
-                  assertion.expected,
-                )
-              }${colors.reset}`,
-            );
-          }
-          if (assertion.actual !== undefined) {
-            console.log(
-              `        ${colors.dim}Actual:   ${
-                JSON.stringify(
-                  assertion.actual,
-                )
-              }${colors.reset}`,
-            );
-          }
-        }
-      }
-    }
-
-    // Show error if any
-    if (errorMsg) {
-      console.log(`      ${colors.red}Error: ${errorMsg}${colors.reset}`);
+    // Handle process crash mid-test (no "status" event received)
+    if (testStarted) {
+      if (!errorMsg) errorMsg = "Process exited before test completed";
+      finalizeTest();
     }
   }
 

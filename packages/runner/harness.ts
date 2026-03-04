@@ -64,7 +64,7 @@ globalThis.addEventListener("unhandledrejection", (event) => {
 
 // Parse CLI arguments
 const args = parseArgs(Deno.args, {
-  string: ["testUrl", "testId", "exportName"],
+  string: ["testUrl", "testId", "testIds", "exportName"],
   boolean: ["emitFullTrace"],
 });
 
@@ -73,14 +73,20 @@ const emitFullTrace = args.emitFullTrace ?? false;
 
 const testUrl = args.testUrl;
 const testId = args.testId;
+/**
+ * Comma-separated list of test IDs for file-level batch mode.
+ * When set, all tests run sequentially in a single process, preserving
+ * module-level state (e.g. shared `let` variables between tests).
+ */
+const testIds = args.testIds ? args.testIds.split(",") : undefined;
 /** Optional export name for fallback lookup (used by test.pick/test.each). */
 const exportName = args.exportName;
 
-if (!testUrl || !testId) {
+if (!testUrl || (!testId && !testIds)) {
   console.log(
     JSON.stringify({
       type: "error",
-      message: "Missing required arguments: --testUrl and --testId",
+      message: "Missing required arguments: --testUrl and (--testId or --testIds)",
     }),
   );
   Deno.exit(1);
@@ -816,6 +822,31 @@ let summaryEmitted = false;
  * Emit summary event with HTTP, assertion, and step totals.
  * Called once before the final status event. Idempotent.
  */
+/**
+ * Reset per-test counters for file-level batch mode.
+ * Called before each test when running multiple tests in a single process.
+ */
+function resetTestCounters() {
+  stepFailedAssertions = 0;
+  stepAssertionTotal = 0;
+  currentStepIndex = null;
+  totalAssertions = 0;
+  totalFailedAssertions = 0;
+  totalSteps = 0;
+  passedSteps = 0;
+  failedSteps = 0;
+  skippedSteps = 0;
+  warningTotal = 0;
+  warningTriggered = 0;
+  schemaValidationTotal = 0;
+  schemaValidationFailed = 0;
+  schemaValidationWarnings = 0;
+  httpRequestTotal = 0;
+  httpErrorTotal = 0;
+  summaryEmitted = false;
+  peakMemoryBytes = 0;
+}
+
 function emitSummary() {
   if (summaryEmitted) return;
   summaryEmitted = true;
@@ -1335,8 +1366,65 @@ try {
 
   const userModule = await import(testUrl);
 
-  // Find the test using the builder API
-  let testObj = findTestById(userModule, testId);
+  if (testIds) {
+    // ── File-level batch mode ──
+    // Run multiple tests sequentially in a single process.
+    // Module-level state (let variables) is preserved between tests.
+    let hasFailure = false;
+    for (const id of testIds) {
+      resetTestCounters();
+      const testObj = findTestById(userModule, id);
+      if (!testObj) {
+        console.log(
+          JSON.stringify({
+            type: "start",
+            id,
+            name: id,
+          }),
+        );
+        console.log(
+          JSON.stringify({
+            type: "status",
+            status: "failed",
+            id,
+            error: `Test "${id}" not found in module`,
+          }),
+        );
+        hasFailure = true;
+        continue;
+      }
+      try {
+        await executeNewTest(testObj);
+      } catch (error) {
+        emitSummary();
+        if (error instanceof SkipError) {
+          console.log(
+            JSON.stringify({
+              type: "status",
+              status: "skipped",
+              id,
+              reason: error.reason,
+            }),
+          );
+        } else {
+          hasFailure = true;
+          console.log(
+            JSON.stringify({
+              type: "status",
+              status: "failed",
+              id,
+              error: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined,
+            }),
+          );
+        }
+      }
+    }
+    Deno.exit(hasFailure ? 1 : 0);
+  }
+
+  // ── Single test mode (default) ──
+  let testObj = findTestById(userModule, testId!);
   if (!testObj && exportName) {
     // Fallback: for non-deterministic tests (test.pick), the testId from
     // discovery may not match this run's random selection. Use the stable

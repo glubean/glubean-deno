@@ -519,7 +519,7 @@ export class TestExecutor {
     testUrl: string,
     testId: string,
     context: ExecutionContext,
-    options?: { timeout?: number; exportName?: string },
+    options?: { timeout?: number; exportName?: string; testIds?: string[] },
   ): AsyncGenerator<ExecutionEvent> {
     // Build V8 flags
     const v8Flags: string[] = [];
@@ -575,7 +575,12 @@ export class TestExecutor {
     args.push("--no-check"); // Faster startup (skip type checking)
     args.push(this.harnessPath);
     args.push(`--testUrl=${testUrl}`);
-    args.push(`--testId=${testId}`);
+    if (options?.testIds) {
+      // File-level batch mode: run all tests in a single process
+      args.push(`--testIds=${options.testIds.join(",")}`);
+    } else {
+      args.push(`--testId=${testId}`);
+    }
     if (options?.exportName) {
       args.push(`--exportName=${options.exportName}`);
     }

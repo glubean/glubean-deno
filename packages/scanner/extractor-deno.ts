@@ -168,6 +168,17 @@ for (const reg of registry) {
   }
 }
 
+// Sort by registry order (source/call order) instead of ES module
+// alphabetical export order. The registry tracks test() calls in the
+// order they execute during module loading, which matches source order.
+const regOrder = new Map();
+registry.forEach((r, i) => regOrder.set(r.id, i));
+exports.sort((a, b) => {
+  const oA = regOrder.has(a.id) ? regOrder.get(a.id) : Infinity;
+  const oB = regOrder.has(b.id) ? regOrder.get(b.id) : Infinity;
+  return oA - oB;
+});
+
 console.log(JSON.stringify(exports));
 `;
 
