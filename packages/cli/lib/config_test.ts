@@ -359,3 +359,36 @@ Deno.test("mergeRunOptions: envFile override", () => {
   });
   assertEquals(result.envFile, ".env.staging");
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// cloud config
+// ═════════════════════════════════════════════════════════════════════════════
+
+Deno.test("loadConfig: cloud section from deno.json", async () => {
+  await withTempDir(
+    {
+      "deno.json": JSON.stringify({
+        glubean: {
+          cloud: { projectId: "proj_abc", apiUrl: "https://custom.api.com" },
+        },
+      }),
+    },
+    async (dir) => {
+      const config = await loadConfig(dir);
+      assertEquals(config.cloud?.projectId, "proj_abc");
+      assertEquals(config.cloud?.apiUrl, "https://custom.api.com");
+    },
+  );
+});
+
+Deno.test("mergeConfigInputs: cloud section merges", () => {
+  const base: GlubeanConfigInput = {
+    cloud: { projectId: "proj_a" },
+  };
+  const overlay: GlubeanConfigInput = {
+    cloud: { apiUrl: "https://overlay.api.com" },
+  };
+  const merged = mergeConfigInputs(base, overlay);
+  assertEquals(merged.cloud?.projectId, "proj_a");
+  assertEquals(merged.cloud?.apiUrl, "https://overlay.api.com");
+});

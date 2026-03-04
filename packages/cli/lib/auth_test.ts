@@ -155,13 +155,13 @@ Deno.test("resolveProjectId: returns null when nothing available", async () => {
 
 // ── resolveApiUrl ──
 
-Deno.test("resolveApiUrl: env takes priority", async () => {
+Deno.test("resolveApiUrl: flag takes priority over env", async () => {
   await withTempHome(async () => {
     await writeCredentials({ token: "gb_x", apiUrl: "https://file.api.com" });
     Deno.env.set("GLUBEAN_API_URL", "https://env.api.com");
 
     const url = await resolveApiUrl({ apiUrl: "https://flag.api.com" });
-    assertEquals(url, "https://env.api.com");
+    assertEquals(url, "https://flag.api.com");
   });
 });
 
@@ -185,5 +185,51 @@ Deno.test("resolveApiUrl: defaults to DEFAULT_API_URL", async () => {
   await withTempHome(async () => {
     const url = await resolveApiUrl({});
     assertEquals(url, DEFAULT_API_URL);
+  });
+});
+
+// ── ProjectAuthSources tests ──
+
+Deno.test("resolveToken: envFileVars used when no flag or system env", async () => {
+  await withTempHome(async () => {
+    const sources = { envFileVars: { GLUBEAN_TOKEN: "gb_from_dotenv" } };
+    const token = await resolveToken({}, sources);
+    assertEquals(token, "gb_from_dotenv");
+  });
+});
+
+Deno.test("resolveToken: system env takes priority over envFileVars", async () => {
+  await withTempHome(async () => {
+    Deno.env.set("GLUBEAN_TOKEN", "gb_system");
+    const sources = { envFileVars: { GLUBEAN_TOKEN: "gb_from_dotenv" } };
+    const token = await resolveToken({}, sources);
+    assertEquals(token, "gb_system");
+  });
+});
+
+Deno.test("resolveProjectId: cloudConfig used when no flag, env, or envFileVars", async () => {
+  await withTempHome(async () => {
+    const sources = { cloudConfig: { projectId: "proj_from_config" } };
+    const id = await resolveProjectId({}, sources);
+    assertEquals(id, "proj_from_config");
+  });
+});
+
+Deno.test("resolveProjectId: envFileVars takes priority over cloudConfig", async () => {
+  await withTempHome(async () => {
+    const sources = {
+      envFileVars: { GLUBEAN_PROJECT_ID: "proj_from_dotenv" },
+      cloudConfig: { projectId: "proj_from_config" },
+    };
+    const id = await resolveProjectId({}, sources);
+    assertEquals(id, "proj_from_dotenv");
+  });
+});
+
+Deno.test("resolveApiUrl: cloudConfig used when no flag, env, or envFileVars", async () => {
+  await withTempHome(async () => {
+    const sources = { cloudConfig: { apiUrl: "https://config.api.com" } };
+    const url = await resolveApiUrl({}, sources);
+    assertEquals(url, "https://config.api.com");
   });
 });

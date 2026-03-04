@@ -15,7 +15,9 @@ import { walk } from "@std/fs/walk";
 import { type BundleMetadata, type FileMeta, scan } from "@glubean/scanner";
 import { buildMetadata } from "../metadata.ts";
 import { CLI_VERSION } from "../version.ts";
-import { DEFAULT_API_URL } from "../lib/constants.ts";
+import { resolveApiUrl, resolveProjectId, resolveToken } from "../lib/auth.ts";
+import { loadConfig } from "../lib/config.ts";
+import { loadProjectEnv } from "../lib/env.ts";
 
 const colors = {
   reset: "\x1b[0m",
@@ -308,25 +310,33 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     `\n${colors.bold}${colors.blue}☁️  Glubean Sync${colors.reset}\n`,
   );
 
-  // Validate options
-  if (!options.project) {
-    console.log(`${colors.red}✗ Error: --project is required${colors.reset}`);
+  const dir = options.dir ? resolve(options.dir) : Deno.cwd();
+
+  // Resolve auth from all sources
+  const config = await loadConfig(dir);
+  const envFileVars = await loadProjectEnv(dir, config.run.envFile);
+  const sources = { envFileVars, cloudConfig: config.cloud };
+  const authOpts = {
+    token: options.token,
+    project: options.project,
+    apiUrl: options.apiUrl,
+  };
+
+  const projectId = await resolveProjectId(authOpts, sources);
+  if (!projectId) {
+    console.log(`${colors.red}✗ Error: No project ID found.${colors.reset}`);
     console.log(
-      `${colors.dim}  Usage: glubean sync --project <project-id>${colors.reset}\n`,
+      `${colors.dim}  Use --project, set GLUBEAN_PROJECT_ID, add to .env, or configure in deno.json glubean.cloud.${colors.reset}\n`,
     );
     Deno.exit(1);
   }
 
-  const dir = options.dir ? resolve(options.dir) : Deno.cwd();
   const version = options.version ||
     new Date().toISOString().replace(/[:.]/g, "-");
-  const apiUrl = (
-    options.apiUrl ||
-    Deno.env.get("GLUBEAN_API_URL") ||
-    DEFAULT_API_URL
-  ).replace(/\/$/, "");
+  const apiUrl = (await resolveApiUrl(authOpts, sources)).replace(/\/$/, "");
+  const token = await resolveToken(authOpts, sources);
 
-  console.log(`${colors.dim}Project:   ${colors.reset}${options.project}`);
+  console.log(`${colors.dim}Project:   ${colors.reset}${projectId}`);
   console.log(`${colors.dim}Version:   ${colors.reset}${version}`);
   console.log(`${colors.dim}Directory: ${colors.reset}${dir}`);
   console.log();
@@ -344,7 +354,7 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
 
   const metadata = await buildMetadata(scanResult, {
     generatedBy: `@glubean/cli@${CLI_VERSION}`,
-    projectId: options.project,
+    projectId,
     version,
   });
   const files = metadata.files;
@@ -399,10 +409,10 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     // Step 4a: Initialize sync - get presigned URL
     console.log(`${colors.cyan}→ Initializing sync...${colors.reset}`);
     const initResult = await initSync(
-      options.project,
+      projectId,
       version,
       apiUrl,
-      options.token,
+      token ?? undefined,
     );
     console.log(
       `${colors.green}✓ Bundle ID: ${initResult.bundleId}${colors.reset}`,
@@ -416,12 +426,12 @@ export async function syncCommand(options: SyncOptions = {}): Promise<void> {
     // Step 4c: Complete sync - save metadata
     console.log(`${colors.cyan}→ Finalizing sync...${colors.reset}`);
     const completeResult = await completeSync(
-      options.project,
+      projectId,
       initResult.bundleId,
       syncTimestamp,
       metadata.files,
       apiUrl,
-      options.token,
+      token ?? undefined,
     );
     console.log(`${colors.green}✓ Sync finalized${colors.reset}`);
 
