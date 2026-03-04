@@ -7,7 +7,9 @@
  *   glubean trigger --project <id> --follow     # Tail logs until complete
  */
 
-import { DEFAULT_API_URL } from "../lib/constants.ts";
+import { resolveApiUrl, resolveProjectId, resolveToken } from "../lib/auth.ts";
+import { loadConfig } from "../lib/config.ts";
+import { loadProjectEnv } from "../lib/env.ts";
 
 const colors = {
   reset: "\x1b[0m",
@@ -276,24 +278,31 @@ export async function triggerCommand(
     `\n${colors.bold}${colors.blue}🚀 Glubean Trigger${colors.reset}\n`,
   );
 
-  // Validate options
-  if (!options.project) {
-    console.log(`${colors.red}✗ Error: --project is required${colors.reset}`);
+  // Resolve auth from all sources
+  const rootDir = Deno.cwd();
+  const config = await loadConfig(rootDir);
+  const envFileVars = await loadProjectEnv(rootDir, config.run.envFile);
+  const sources = { envFileVars, cloudConfig: config.cloud };
+  const authOpts = {
+    token: options.token,
+    project: options.project,
+    apiUrl: options.apiUrl,
+  };
+
+  const projectId = await resolveProjectId(authOpts, sources);
+  if (!projectId) {
+    console.log(`${colors.red}✗ Error: No project ID found.${colors.reset}`);
     console.log(
-      `${colors.dim}  Usage: glubean trigger --project <project-id>${colors.reset}\n`,
+      `${colors.dim}  Use --project, set GLUBEAN_PROJECT_ID, add to .env, or configure in deno.json glubean.cloud.${colors.reset}\n`,
     );
     Deno.exit(1);
   }
 
-  const apiUrl = (
-    options.apiUrl ||
-    Deno.env.get("GLUBEAN_API_URL") ||
-    DEFAULT_API_URL
-  ).replace(/\/$/, "");
+  const apiUrl = (await resolveApiUrl(authOpts, sources)).replace(/\/$/, "");
   const appUrl = apiUrl.replace("api.", "app.").replace(/\/$/, "");
-  const token = options.token || Deno.env.get("GLUBEAN_TOKEN");
+  const token = await resolveToken(authOpts, sources);
 
-  console.log(`${colors.dim}Project: ${colors.reset}${options.project}`);
+  console.log(`${colors.dim}Project: ${colors.reset}${projectId}`);
   if (options.bundle) {
     console.log(`${colors.dim}Bundle:  ${colors.reset}${options.bundle}`);
   } else {
@@ -308,9 +317,9 @@ export async function triggerCommand(
     // Create the run
     console.log(`${colors.cyan}→ Creating run...${colors.reset}`);
     const result = await createRun(
-      options.project,
+      projectId,
       apiUrl,
-      token,
+      token ?? undefined,
       options.bundle,
       options.job,
     );
@@ -333,7 +342,7 @@ export async function triggerCommand(
         `${colors.dim}─────────────────────────────────────${colors.reset}`,
       );
 
-      const finalStatus = await tailEvents(result.runId, apiUrl, token);
+      const finalStatus = await tailEvents(result.runId, apiUrl, token ?? undefined);
 
       console.log(
         `${colors.dim}─────────────────────────────────────${colors.reset}`,

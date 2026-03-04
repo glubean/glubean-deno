@@ -5,8 +5,8 @@ import {
   toSingleExecutionOptions,
 } from "@glubean/runner";
 import { basename, dirname, isAbsolute, relative, resolve, toFileUrl } from "@std/path";
-import { parse as parseDotenv } from "@std/dotenv/parse";
 import { loadConfig, mergeRunOptions, toSharedRunConfig } from "../lib/config.ts";
+import { loadEnvFile } from "../lib/env.ts";
 import { walk } from "@std/fs/walk";
 import { expandGlob } from "@std/fs/expand-glob";
 import { extractWithDeno } from "@glubean/scanner";
@@ -142,15 +142,6 @@ async function findProjectConfig(
   }
   // No deno.json found, use the start directory
   return { rootDir: startDir };
-}
-
-async function loadEnvFile(envPath: string): Promise<Record<string, string>> {
-  try {
-    const content = await Deno.readTextFile(envPath);
-    return parseDotenv(content);
-  } catch {
-    return {};
-  }
 }
 
 const DEFAULT_SKIP_DIRS = ["node_modules", ".git", "dist", "build", ".deno"];
@@ -1329,17 +1320,21 @@ export async function runCommand(
       project: options.project,
       apiUrl: options.apiUrl,
     };
-    const token = await resolveToken(authOpts);
-    const projectId = await resolveProjectId(authOpts);
-    const apiUrl = await resolveApiUrl(authOpts);
+    const sources = {
+      envFileVars: { ...envVars, ...secrets },
+      cloudConfig: glubeanConfig.cloud,
+    };
+    const token = await resolveToken(authOpts, sources);
+    const projectId = await resolveProjectId(authOpts, sources);
+    const apiUrl = await resolveApiUrl(authOpts, sources);
 
     if (!token) {
       console.log(
-        `${colors.yellow}No auth token found. Run 'glubean login' or set GLUBEAN_TOKEN.${colors.reset}`,
+        `${colors.yellow}No auth token found. Run 'glubean login', set GLUBEAN_TOKEN, or add it to .env.secrets.${colors.reset}`,
       );
     } else if (!projectId) {
       console.log(
-        `${colors.yellow}No project ID. Use --project or run 'glubean login'.${colors.reset}`,
+        `${colors.yellow}No project ID. Use --project, set in deno.json glubean.cloud, or run 'glubean login'.${colors.reset}`,
       );
     } else {
       await uploadToCloud(resultPayload, {

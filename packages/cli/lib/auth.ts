@@ -3,8 +3,10 @@
  *
  * Priority order:
  *   1. CLI flag (--token / --project / --api-url)
- *   2. Environment variable (GLUBEAN_TOKEN / GLUBEAN_PROJECT_ID / GLUBEAN_API_URL)
- *   3. ~/.glubean/credentials.json
+ *   2. System environment variable (GLUBEAN_TOKEN / GLUBEAN_PROJECT_ID / GLUBEAN_API_URL)
+ *   3. .env + .env.secrets file vars (project-level)
+ *   4. deno.json glubean.cloud config (projectId, apiUrl only — no token)
+ *   5. ~/.glubean/credentials.json (global fallback)
  */
 
 import { dirname, join } from "@std/path";
@@ -20,6 +22,17 @@ export interface AuthOptions {
   token?: string;
   project?: string;
   apiUrl?: string;
+}
+
+/**
+ * Additional auth sources from the project context.
+ * Passed by callers that have already loaded env files and config.
+ */
+export interface ProjectAuthSources {
+  /** Merged vars from .env + .env.secrets */
+  envFileVars?: Record<string, string>;
+  /** Cloud section from deno.json glubean config */
+  cloudConfig?: { apiUrl?: string; projectId?: string };
 }
 
 function getCredentialsPath(): string | null {
@@ -47,26 +60,58 @@ export async function writeCredentials(creds: Credentials): Promise<string> {
   return path;
 }
 
-export async function resolveToken(options: AuthOptions): Promise<string | null> {
+export async function resolveToken(
+  options: AuthOptions,
+  sources?: ProjectAuthSources,
+): Promise<string | null> {
+  // 1. CLI flag
   if (options.token) return options.token;
+  // 2. System env var
   const env = Deno.env.get("GLUBEAN_TOKEN");
   if (env) return env;
+  // 3. .env / .env.secrets
+  const fileVar = sources?.envFileVars?.["GLUBEAN_TOKEN"];
+  if (fileVar) return fileVar;
+  // 4. deno.json cloud — no token (security: never commit tokens)
+  // 5. ~/.glubean/credentials.json
   const creds = await readCredentials();
   return creds?.token ?? null;
 }
 
-export async function resolveProjectId(options: AuthOptions): Promise<string | null> {
+export async function resolveProjectId(
+  options: AuthOptions,
+  sources?: ProjectAuthSources,
+): Promise<string | null> {
+  // 1. CLI flag
   if (options.project) return options.project;
+  // 2. System env var
   const env = Deno.env.get("GLUBEAN_PROJECT_ID");
   if (env) return env;
+  // 3. .env / .env.secrets
+  const fileVar = sources?.envFileVars?.["GLUBEAN_PROJECT_ID"];
+  if (fileVar) return fileVar;
+  // 4. deno.json cloud config
+  if (sources?.cloudConfig?.projectId) return sources.cloudConfig.projectId;
+  // 5. ~/.glubean/credentials.json
   const creds = await readCredentials();
   return creds?.projectId ?? null;
 }
 
-export async function resolveApiUrl(options: AuthOptions): Promise<string> {
+export async function resolveApiUrl(
+  options: AuthOptions,
+  sources?: ProjectAuthSources,
+): Promise<string> {
+  // 1. CLI flag
+  if (options.apiUrl) return options.apiUrl;
+  // 2. System env var
   const env = Deno.env.get("GLUBEAN_API_URL");
   if (env) return env;
-  if (options.apiUrl) return options.apiUrl;
+  // 3. .env / .env.secrets
+  const fileVar = sources?.envFileVars?.["GLUBEAN_API_URL"];
+  if (fileVar) return fileVar;
+  // 4. deno.json cloud config
+  if (sources?.cloudConfig?.apiUrl) return sources.cloudConfig.apiUrl;
+  // 5. ~/.glubean/credentials.json
   const creds = await readCredentials();
   return creds?.apiUrl ?? DEFAULT_API_URL;
 }

@@ -78,16 +78,24 @@ export interface GlubeanRedactionConfigInput {
   replacementFormat?: "simple" | "labeled" | "partial";
 }
 
+/** Cloud connection config (non-secret fields only). */
+export interface GlubeanCloudConfigInput {
+  projectId?: string;
+  apiUrl?: string;
+}
+
 /** Fully resolved top-level config. */
 export interface GlubeanConfig {
   run: GlubeanRunConfig;
   redaction: RedactionConfig;
+  cloud?: GlubeanCloudConfigInput;
 }
 
 /** Partial top-level config as read from a file. */
 export interface GlubeanConfigInput {
   run?: GlubeanRunConfigInput;
   redaction?: GlubeanRedactionConfigInput;
+  cloud?: GlubeanCloudConfigInput;
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -199,6 +207,11 @@ export function mergeConfigInputs(
         ],
       };
     }
+  }
+
+  // ── Cloud section (shallow merge, scalars override) ─────────────────────
+  if (base.cloud || overlay.cloud) {
+    merged.cloud = { ...base.cloud, ...overlay.cloud };
   }
 
   return merged;
@@ -318,6 +331,7 @@ export async function loadConfig(
   return {
     run: resolvedRun,
     redaction: resolvedRedaction,
+    cloud: accumulated.cloud,
   };
 }
 
