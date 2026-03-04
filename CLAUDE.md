@@ -5,6 +5,8 @@
 Deno monorepo containing @glubean/sdk, @glubean/cli, @glubean/runner, @glubean/scanner, and core plugin types. Published
 to JSR. This is the data collection layer.
 
+**Feature Map:** Before modifying SDK or CLI, check `internal/00-overview/feature-map/sdk.md` and `cli.md` for existing capabilities.
+
 ## Current Focus (updated 2026-03-03)
 
 1. P3.1 is DONE — `feat/cli-cloud-upload` already squash-merged to main (#52)
