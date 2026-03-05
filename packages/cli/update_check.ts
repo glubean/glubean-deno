@@ -119,7 +119,7 @@ export async function checkForUpdates(
     }
 
     if (latest && isNewer(latest, currentVersion)) {
-      console.log(
+      console.error(
         `Update available: glubean v${latest} (current v${currentVersion}). ` +
           "Run: glubean upgrade",
       );
