@@ -78,10 +78,11 @@ export interface GlubeanRedactionConfigInput {
   replacementFormat?: "simple" | "labeled" | "partial";
 }
 
-/** Cloud connection config (non-secret fields only). */
+/** Cloud connection config. */
 export interface GlubeanCloudConfigInput {
   projectId?: string;
   apiUrl?: string;
+  token?: string;
 }
 
 /** Fully resolved top-level config. */

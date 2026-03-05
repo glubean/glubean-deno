@@ -30,10 +30,10 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
   let token = options.token;
   if (!token) {
     console.log(
-      `${colors.dim}Get your API key from ${apiUrl.replace("api.", "app.")}/settings/api-keys${colors.reset}`,
+      `${colors.dim}Get a project token from your project settings at ${apiUrl.replace("api.", "app.")}${colors.reset}`,
     );
     token = await Secret.prompt({
-      message: "Paste your API key",
+      message: "Paste your project token (gpt_...)",
     });
   }
 

@@ -200,7 +200,7 @@ Glubean also ships an MCP (Model Context Protocol) server so your AI tool can **
 Local MCP tools do not require cloud auth. If you also want the AI to trigger remote runs via the Open Platform, set:
 
 ```bash
-export GLUBEAN_TOKEN=glb_token_xxx
+export GLUBEAN_TOKEN=gpt_your_project_token
 export GLUBEAN_API_URL=https://api.glubean.com
 ```
 

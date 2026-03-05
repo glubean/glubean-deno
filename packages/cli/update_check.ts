@@ -92,7 +92,7 @@ export async function checkForUpdates(
 
     if (cache && now - cache.lastChecked < UPDATE_INTERVAL_MS) {
       if (cache.latest && isNewer(cache.latest, currentVersion)) {
-        console.log(
+        console.error(
           `Update available: glubean v${cache.latest} (current v${currentVersion}). ` +
             "Run: glubean upgrade",
         );

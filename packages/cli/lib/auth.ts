@@ -5,7 +5,7 @@
  *   1. CLI flag (--token / --project / --api-url)
  *   2. System environment variable (GLUBEAN_TOKEN / GLUBEAN_PROJECT_ID / GLUBEAN_API_URL)
  *   3. .env + .env.secrets file vars (project-level)
- *   4. deno.json glubean.cloud config (projectId, apiUrl only — no token)
+ *   4. deno.json glubean.cloud config (projectId, apiUrl, token)
  *   5. ~/.glubean/credentials.json (global fallback)
  */
 
@@ -32,7 +32,7 @@ export interface ProjectAuthSources {
   /** Merged vars from .env + .env.secrets */
   envFileVars?: Record<string, string>;
   /** Cloud section from deno.json glubean config */
-  cloudConfig?: { apiUrl?: string; projectId?: string };
+  cloudConfig?: { apiUrl?: string; projectId?: string; token?: string };
 }
 
 function getCredentialsPath(): string | null {
@@ -72,7 +72,8 @@ export async function resolveToken(
   // 3. .env / .env.secrets
   const fileVar = sources?.envFileVars?.["GLUBEAN_TOKEN"];
   if (fileVar) return fileVar;
-  // 4. deno.json cloud — no token (security: never commit tokens)
+  // 4. deno.json cloud config
+  if (sources?.cloudConfig?.token) return sources.cloudConfig.token;
   // 5. ~/.glubean/credentials.json
   const creds = await readCredentials();
   return creds?.token ?? null;

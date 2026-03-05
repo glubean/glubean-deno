@@ -410,9 +410,9 @@ cli.command("worker", workerCmd);
 // Main entry point
 // ─────────────────────────────────────────────────────────────────────────────
 if (import.meta.main) {
-  // Check for updates (unless --no-update-check)
+  // Check for updates (non-blocking — don't delay CLI startup)
   if (!Deno.args.includes("--no-update-check")) {
-    await checkForUpdates(CLI_VERSION);
+    checkForUpdates(CLI_VERSION).catch(() => {});
   }
 
   try {

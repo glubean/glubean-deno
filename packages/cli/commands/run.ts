@@ -378,10 +378,10 @@ export async function runCommand(
       `\n${colors.red}❌ No test files found for target: ${target}${colors.reset}`,
     );
     console.error(
-      `${colors.dim}Make sure *.test.ts files import from @glubean/sdk${colors.reset}\n`,
+      `${colors.dim}Check that your test directory contains *.test.ts files.${colors.reset}\n`,
     );
     await writeEmptyResult(target, runStartLocal);
-    return;
+    Deno.exit(1);
   }
 
   if (isMultiFile) {
@@ -421,6 +421,17 @@ export async function runCommand(
   // Secrets file follows the env file: .env → .env.secrets, .env.staging → .env.staging.secrets
   const secretsPath = resolve(rootDir, `${envFileName}.secrets`);
   const secrets = await loadEnvFile(secretsPath);
+
+  // Warn if user explicitly specified --env-file but neither file exists
+  if (
+    options.envFile &&
+    Object.keys(envVars).length === 0 &&
+    Object.keys(secrets).length === 0
+  ) {
+    console.warn(
+      `${colors.yellow}Warning: env file '${envFileName}' not found or empty in ${rootDir}${colors.reset}`,
+    );
+  }
 
   if (Object.keys(envVars).length > 0) {
     console.log(
@@ -1350,13 +1361,21 @@ export async function runCommand(
     const apiUrl = await resolveApiUrl(authOpts, sources);
 
     if (!token) {
-      console.log(
-        `${colors.yellow}No auth token found. Run 'glubean login', set GLUBEAN_TOKEN, or add it to .env.secrets.${colors.reset}`,
+      console.error(
+        `${colors.red}Upload failed: no auth token found.${colors.reset}`,
       );
+      console.error(
+        `${colors.dim}Run 'glubean login', set GLUBEAN_TOKEN, or add token to .env.secrets or deno.json glubean.cloud.${colors.reset}`,
+      );
+      Deno.exit(1);
     } else if (!projectId) {
-      console.log(
-        `${colors.yellow}No project ID. Use --project, set in deno.json glubean.cloud, or run 'glubean login'.${colors.reset}`,
+      console.error(
+        `${colors.red}Upload failed: no project ID.${colors.reset}`,
       );
+      console.error(
+        `${colors.dim}Use --project, set projectId in deno.json glubean.cloud, or run 'glubean login'.${colors.reset}`,
+      );
+      Deno.exit(1);
     } else {
       await uploadToCloud(resultPayload, {
         apiUrl,
