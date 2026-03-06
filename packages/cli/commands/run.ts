@@ -455,6 +455,74 @@ export async function runCommand(
     );
   }
 
+  // ── Preflight: verify auth before running tests when --upload is set ────
+  if (options.upload) {
+    const { resolveToken, resolveProjectId, resolveApiUrl } = await import(
+      "../lib/auth.ts"
+    );
+    const authOpts = {
+      token: options.token,
+      project: options.project,
+      apiUrl: options.apiUrl,
+    };
+    const sources = {
+      envFileVars: { ...envVars, ...secrets },
+      cloudConfig: glubeanConfig.cloud,
+    };
+    const preToken = await resolveToken(authOpts, sources);
+    const preProject = await resolveProjectId(authOpts, sources);
+    const preApiUrl = await resolveApiUrl(authOpts, sources);
+    if (!preToken) {
+      console.error(
+        `${colors.red}Error: --upload requires authentication but no token found.${colors.reset}`,
+      );
+      console.error(
+        `${colors.dim}Run 'glubean login', set GLUBEAN_TOKEN, or add token to .env.secrets or deno.json glubean.cloud.${colors.reset}`,
+      );
+      Deno.exit(1);
+    }
+    if (!preProject) {
+      console.error(
+        `${colors.red}Error: --upload requires a project ID but none found.${colors.reset}`,
+      );
+      console.error(
+        `${colors.dim}Use --project, set projectId in deno.json glubean.cloud, or run 'glubean init'.${colors.reset}`,
+      );
+      Deno.exit(1);
+    }
+    // Verify token is valid by calling whoami endpoint
+    try {
+      const resp = await fetch(`${preApiUrl}/open/v1/whoami`, {
+        headers: { Authorization: `Bearer ${preToken}` },
+      });
+      if (!resp.ok) {
+        console.error(
+          `${colors.red}Error: authentication failed (${resp.status}).${colors.reset}`,
+        );
+        if (resp.status === 401) {
+          console.error(
+            `${colors.dim}Token is invalid or expired. Run 'glubean login' to re-authenticate.${colors.reset}`,
+          );
+        }
+        Deno.exit(1);
+      }
+      const identity = await resp.json();
+      console.log(
+        `${colors.dim}Authenticated as ${
+          identity.kind === "project_token" ? `project token (${identity.projectName})` : "user"
+        } · upload to ${preApiUrl}${colors.reset}`,
+      );
+    } catch (err) {
+      console.error(
+        `${colors.red}Error: cannot reach server at ${preApiUrl}${colors.reset}`,
+      );
+      console.error(
+        `${colors.dim}${(err as Error).message}${colors.reset}`,
+      );
+      Deno.exit(1);
+    }
+  }
+
   // ── Discover tests across all files ─────────────────────────────────────
   console.log(`${colors.dim}Discovering tests...${colors.reset}`);
   const allFileTests: FileTest[] = [];
