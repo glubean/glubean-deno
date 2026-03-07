@@ -321,9 +321,19 @@ export async function loadConfig(
   }
 
   // Resolve run config: defaults + file values
+  // Permissions are appended (not replaced) so defaults are always present.
+  const userPerms = accumulated.run?.permissions;
   const resolvedRun: GlubeanRunConfig = {
     ...RUN_DEFAULTS,
     ...accumulated.run,
+    permissions: userPerms
+      ? [
+        ...RUN_DEFAULTS.permissions,
+        ...userPerms.filter(
+          (p) => !RUN_DEFAULTS.permissions.includes(p),
+        ),
+      ]
+      : [...RUN_DEFAULTS.permissions],
   };
 
   // Resolve redaction config: mandatory baseline + user overlay

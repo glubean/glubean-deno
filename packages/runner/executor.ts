@@ -531,10 +531,19 @@ export class TestExecutor {
     }
 
     // Build permission flags
-    const permissions = this.options.permissions ?? [
+    // Default permissions are always included; user permissions are appended.
+    // Special case: -A or --allow-all grants everything, skip defaults.
+    const userPerms = this.options.permissions ?? [];
+    const hasAllowAll = userPerms.some(
+      (p) => p === "-A" || p === "--allow-all",
+    );
+    const permissions = hasAllowAll ? ["-A"] : [
       "--allow-net", // Allow network for API testing
       "--allow-read", // Allow reading test files
       "--allow-env", // Allow env access (e.g. GLUBEAN_PICK for test.pick)
+      ...userPerms.filter(
+        (p) => p !== "--allow-net" && p !== "--allow-read" && p !== "--allow-env",
+      ),
     ];
 
     // Build args array
