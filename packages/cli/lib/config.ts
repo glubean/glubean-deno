@@ -274,6 +274,52 @@ function resolveRedactionConfig(
   return merged;
 }
 
+// ── Validation ───────────────────────────────────────────────────────────────
+
+const KNOWN_TOP_KEYS = new Set(["run", "redaction", "cloud"]);
+const KNOWN_RUN_KEYS = new Set(Object.keys(RUN_DEFAULTS));
+const KNOWN_REDACTION_KEYS = new Set([
+  "sensitiveKeys",
+  "patterns",
+  "replacementFormat",
+]);
+const KNOWN_CLOUD_KEYS = new Set(["projectId", "apiUrl", "token"]);
+
+function warnUnknownKeys(
+  obj: Record<string, unknown>,
+  known: Set<string>,
+  path: string,
+): void {
+  for (const key of Object.keys(obj)) {
+    if (!known.has(key)) {
+      console.error(
+        `\x1b[33mWarning: unknown config key "${path}.${key}" — typo?\x1b[0m`,
+      );
+    }
+  }
+}
+
+function validateConfigInput(input: GlubeanConfigInput): void {
+  warnUnknownKeys(input as Record<string, unknown>, KNOWN_TOP_KEYS, "glubean");
+  if (input.run) {
+    warnUnknownKeys(input.run as Record<string, unknown>, KNOWN_RUN_KEYS, "glubean.run");
+  }
+  if (input.redaction) {
+    warnUnknownKeys(
+      input.redaction as Record<string, unknown>,
+      KNOWN_REDACTION_KEYS,
+      "glubean.redaction",
+    );
+  }
+  if (input.cloud) {
+    warnUnknownKeys(
+      input.cloud as Record<string, unknown>,
+      KNOWN_CLOUD_KEYS,
+      "glubean.cloud",
+    );
+  }
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -300,6 +346,7 @@ export async function loadConfig(
       const absPath = resolve(rootDir, configPath);
       try {
         const single = await readSingleConfig(absPath);
+        validateConfigInput(single);
         accumulated = mergeConfigInputs(accumulated, single);
       } catch {
         // Warn but continue — missing config files are not fatal
@@ -312,6 +359,7 @@ export async function loadConfig(
       const denoPath = resolve(rootDir, filename);
       try {
         const single = await readSingleConfig(denoPath);
+        validateConfigInput(single);
         accumulated = mergeConfigInputs(accumulated, single);
         break; // Use the first one found
       } catch {
