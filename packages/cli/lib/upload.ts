@@ -25,6 +25,39 @@ const colors = {
 const RESULTS_TIMEOUT_MS = 5_000;
 const ARTIFACT_TIMEOUT_MS = 30_000;
 const INLINE_THRESHOLD = 512 * 1024; // 512KB
+const MAX_RETRIES = 1;
+const RETRY_DELAY_MS = 1_000;
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit & { timeoutMs?: number },
+  retries = MAX_RETRIES,
+): Promise<Response> {
+  const { timeoutMs, ...fetchInit } = init;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeout = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+    try {
+      const resp = await fetch(url, { ...fetchInit, signal: controller.signal });
+      if (timeout) clearTimeout(timeout);
+      // Retry on 5xx server errors
+      if (resp.status >= 500 && attempt < retries) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        continue;
+      }
+      return resp;
+    } catch (err) {
+      if (timeout) clearTimeout(timeout);
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        continue;
+      }
+      throw err;
+    }
+  }
+  // Unreachable, but TypeScript needs it
+  throw new Error("fetchWithRetry exhausted");
+}
 
 export interface UploadResultPayload {
   target?: string;
@@ -137,19 +170,15 @@ export async function uploadToCloud(
   let runId: string;
   let runUrl: string;
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), RESULTS_TIMEOUT_MS);
-
-    const resp = await fetch(`${apiUrl}/open/v1/cli-runs`, {
+    const resp = await fetchWithRetry(`${apiUrl}/open/v1/cli-runs`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      timeoutMs: RESULTS_TIMEOUT_MS,
     });
-    clearTimeout(timeout);
 
     if (!resp.ok) {
       const errText = await resp.text();
@@ -299,19 +328,15 @@ async function uploadArtifactsInline(
     "artifacts.zip",
   );
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ARTIFACT_TIMEOUT_MS);
-
-  const resp = await fetch(
+  const resp = await fetchWithRetry(
     `${apiUrl}/open/v1/cli-runs/${runId}/artifacts/upload`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
-      signal: controller.signal,
+      timeoutMs: ARTIFACT_TIMEOUT_MS,
     },
   );
-  clearTimeout(timeout);
 
   if (!resp.ok) {
     const errText = await resp.text();
@@ -336,12 +361,13 @@ async function uploadArtifactsPresigned(
   const form = new FormData();
   form.append("size", String(zipSize));
 
-  const urlResp = await fetch(
+  const urlResp = await fetchWithRetry(
     `${apiUrl}/open/v1/cli-runs/${runId}/artifacts/upload`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
+      timeoutMs: RESULTS_TIMEOUT_MS,
     },
   );
 
@@ -356,16 +382,12 @@ async function uploadArtifactsPresigned(
   const { signedUrl, archiveKey } = await urlResp.json();
 
   // 2. PUT zip to signed URL
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ARTIFACT_TIMEOUT_MS);
-
-  const putResp = await fetch(signedUrl, {
+  const putResp = await fetchWithRetry(signedUrl, {
     method: "PUT",
     headers: { "Content-Type": "application/zip" },
-    body: zipData,
-    signal: controller.signal,
+    body: zipData as unknown as BodyInit,
+    timeoutMs: ARTIFACT_TIMEOUT_MS,
   });
-  clearTimeout(timeout);
 
   if (!putResp.ok) {
     console.log(
@@ -375,7 +397,7 @@ async function uploadArtifactsPresigned(
   }
 
   // 3. Notify server to extract + index
-  await fetch(
+  await fetchWithRetry(
     `${apiUrl}/open/v1/cli-runs/${runId}/artifacts/upload/complete`,
     {
       method: "POST",
@@ -384,6 +406,7 @@ async function uploadArtifactsPresigned(
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ archiveKey }),
+      timeoutMs: RESULTS_TIMEOUT_MS,
     },
   );
 }
