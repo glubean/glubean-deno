@@ -1110,6 +1110,11 @@ export async function runCommand(
           console.log(
             `    ${colors.cyan}└${colors.reset} ${stepIcon} ${colors.dim}${stepParts.join(" · ")}${colors.reset}`,
           );
+          if (event.error) {
+            console.log(
+              `      ${colors.red}${event.error}${colors.reset}`,
+            );
+          }
           break;
         }
 
