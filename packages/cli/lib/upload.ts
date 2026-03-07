@@ -3,11 +3,10 @@
  *
  * Upload flow:
  * 1. POST results JSON to /open/v1/cli-runs → { runId, url }
- * 2. If artifact files exist:
- *    a. Zip artifacts + generate manifest
- *    b. Request signed upload URL
- *    c. PUT zip to signed URL
- *    d. Notify server to extract + index
+ * 2. If artifact files exist, build a single zip (manifest.json + files/):
+ *    a. zip < 512KB → POST multipart to /artifacts/upload (inline, 1 request)
+ *    b. zip ≥ 512KB → POST /artifacts/upload { size } → PUT zip to signed URL
+ *       → POST /artifacts/upload/complete (3 requests)
  */
 
 import { walk } from "@std/fs/walk";
@@ -25,6 +24,7 @@ const colors = {
 
 const RESULTS_TIMEOUT_MS = 5_000;
 const ARTIFACT_TIMEOUT_MS = 30_000;
+const INLINE_THRESHOLD = 512 * 1024; // 512KB
 
 export interface UploadResultPayload {
   target?: string;
@@ -199,6 +199,7 @@ export async function uploadToCloud(
 
   if (files.length === 0) return;
 
+  let tmpDir: string | undefined;
   try {
     // Build manifest
     const manifest: ManifestEntry[] = [];
@@ -213,68 +214,28 @@ export async function uploadToCloud(
       });
     }
 
-    // Get signed upload URL
-    const urlResp = await fetch(
-      `${apiUrl}/open/v1/cli-runs/${runId}/artifacts/upload-url`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({}),
-      },
-    );
-
-    if (!urlResp.ok) {
-      console.log(
-        `${colors.yellow}Artifact upload URL request failed (${urlResp.status})${colors.reset}`,
-      );
-      return;
-    }
-
-    const { signedUrl, archiveKey } = await urlResp.json();
-
-    // Create zip using Deno subprocess (tar + gzip for cross-platform reliability)
-    const tmpDir = await Deno.makeTempDir({ prefix: "glubean-artifacts-" });
-    const zipPath = join(tmpDir, "artifacts.zip");
-
-    // Copy files to temp staging area with proper structure
-    const stagingDir = join(tmpDir, "staging", "files");
-    await Deno.mkdir(stagingDir, { recursive: true });
+    // Stage files + manifest into temp dir, then zip
+    tmpDir = await Deno.makeTempDir({ prefix: "glubean-artifacts-" });
+    const stagingDir = join(tmpDir, "staging");
+    const filesDir = join(stagingDir, "files");
+    await Deno.mkdir(filesDir, { recursive: true });
 
     for (const file of files) {
-      const destPath = join(stagingDir, file.relativeName);
-      await Deno.mkdir(join(destPath, "..").replace(/\/\.\.$/, ""), {
-        recursive: true,
-      });
-      // Use dirname properly
+      const destPath = join(filesDir, file.relativeName);
       const destDir = destPath.substring(0, destPath.lastIndexOf("/"));
       await Deno.mkdir(destDir, { recursive: true });
       await Deno.copyFile(file.path, destPath);
     }
 
-    // Write manifest alongside files
-    const manifestPath = join(tmpDir, "staging", "manifest.json");
-    await Deno.writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
-
-    // Also upload manifest to storage directly (for server-side extraction)
-    const manifestUploadResp = await fetch(
-      `${apiUrl}/open/v1/cli-runs/${runId}/artifacts/upload-url`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ key: "manifest.json" }),
-      },
+    await Deno.writeTextFile(
+      join(stagingDir, "manifest.json"),
+      JSON.stringify(manifest, null, 2),
     );
 
-    // Create zip
+    const zipPath = join(tmpDir, "artifacts.zip");
     const zipCmd = new Deno.Command("zip", {
       args: ["-r", zipPath, "."],
-      cwd: join(tmpDir, "staging"),
+      cwd: stagingDir,
       stdout: "null",
       stderr: "null",
     });
@@ -283,84 +244,19 @@ export async function uploadToCloud(
       console.log(
         `${colors.yellow}Failed to create artifact archive${colors.reset}`,
       );
-      await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
       return;
     }
 
-    // Upload zip to signed URL
     const zipData = await Deno.readFile(zipPath);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), ARTIFACT_TIMEOUT_MS);
+    const zipSize = zipData.byteLength;
 
-    const putResp = await fetch(signedUrl, {
-      method: "PUT",
-      headers: { "Content-Type": "application/zip" },
-      body: zipData,
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!putResp.ok) {
-      console.log(
-        `${colors.yellow}Artifact upload failed (${putResp.status})${colors.reset}`,
-      );
-      await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
-      return;
+    if (zipSize < INLINE_THRESHOLD) {
+      // ── Inline mode: POST multipart with zip ──
+      await uploadArtifactsInline(apiUrl, token, runId, zipData);
+    } else {
+      // ── Presigned mode: get signed URL → PUT → complete ──
+      await uploadArtifactsPresigned(apiUrl, token, runId, zipData, zipSize);
     }
-
-    // Upload manifest separately for server-side indexing
-    if (manifestUploadResp.ok) {
-      const manifestResult = await manifestUploadResp.json();
-      if (manifestResult.signedUrl) {
-        const manifestData = new TextEncoder().encode(
-          JSON.stringify(manifest),
-        );
-        await fetch(manifestResult.signedUrl, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: manifestData,
-        }).catch(() => {});
-      }
-    }
-
-    // Upload individual files to storage for direct access
-    for (const file of files) {
-      try {
-        const fileUrlResp = await fetch(
-          `${apiUrl}/open/v1/cli-runs/${runId}/artifacts/upload-url`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ key: `files/${file.relativeName}` }),
-          },
-        );
-        if (fileUrlResp.ok) {
-          const { signedUrl: fileSignedUrl } = await fileUrlResp.json();
-          const ext = extname(file.relativeName);
-          const fileData = await Deno.readFile(file.path);
-          await fetch(fileSignedUrl, {
-            method: "PUT",
-            headers: { "Content-Type": extToMime(ext) },
-            body: fileData,
-          });
-        }
-      } catch {
-        // Best effort — skip individual file upload failures
-      }
-    }
-
-    // Notify server to extract + index
-    await fetch(`${apiUrl}/open/v1/cli-runs/${runId}/artifacts/complete`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ archiveKey }),
-    }).catch(() => {});
 
     const totalSize = manifest.reduce((sum, e) => sum + e.sizeBytes, 0);
     const sizeStr = totalSize > 1024 * 1024
@@ -369,9 +265,6 @@ export async function uploadToCloud(
     console.log(
       `${colors.green}Artifacts uploaded${colors.reset} ${colors.dim}(${files.length} files, ${sizeStr})${colors.reset}`,
     );
-
-    // Cleanup temp dir
-    await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
       console.log(
@@ -382,5 +275,115 @@ export async function uploadToCloud(
         `${colors.yellow}Artifact upload failed: ${err instanceof Error ? err.message : err}${colors.reset}`,
       );
     }
+  } finally {
+    if (tmpDir) {
+      await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
+    }
   }
+}
+
+/**
+ * Inline upload: POST multipart with zip file directly to server.
+ * Server extracts and indexes in-place. Single request.
+ */
+async function uploadArtifactsInline(
+  apiUrl: string,
+  token: string,
+  runId: string,
+  zipData: Uint8Array,
+): Promise<void> {
+  const form = new FormData();
+  form.append(
+    "archive",
+    new Blob([zipData.buffer as ArrayBuffer], { type: "application/zip" }),
+    "artifacts.zip",
+  );
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ARTIFACT_TIMEOUT_MS);
+
+  const resp = await fetch(
+    `${apiUrl}/open/v1/cli-runs/${runId}/artifacts/upload`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+      signal: controller.signal,
+    },
+  );
+  clearTimeout(timeout);
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.log(
+      `${colors.yellow}Artifact upload failed (${resp.status}): ${errText}${colors.reset}`,
+    );
+  }
+}
+
+/**
+ * Presigned upload: get signed URL → PUT zip → POST complete.
+ * Three requests total.
+ */
+async function uploadArtifactsPresigned(
+  apiUrl: string,
+  token: string,
+  runId: string,
+  zipData: Uint8Array,
+  zipSize: number,
+): Promise<void> {
+  // 1. Request presigned URL
+  const form = new FormData();
+  form.append("size", String(zipSize));
+
+  const urlResp = await fetch(
+    `${apiUrl}/open/v1/cli-runs/${runId}/artifacts/upload`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    },
+  );
+
+  if (!urlResp.ok) {
+    const errText = await urlResp.text();
+    console.log(
+      `${colors.yellow}Artifact upload URL request failed (${urlResp.status}): ${errText}${colors.reset}`,
+    );
+    return;
+  }
+
+  const { signedUrl, archiveKey } = await urlResp.json();
+
+  // 2. PUT zip to signed URL
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ARTIFACT_TIMEOUT_MS);
+
+  const putResp = await fetch(signedUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "application/zip" },
+    body: zipData,
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  if (!putResp.ok) {
+    console.log(
+      `${colors.yellow}Artifact upload failed (${putResp.status})${colors.reset}`,
+    );
+    return;
+  }
+
+  // 3. Notify server to extract + index
+  await fetch(
+    `${apiUrl}/open/v1/cli-runs/${runId}/artifacts/upload/complete`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ archiveKey }),
+    },
+  );
 }
