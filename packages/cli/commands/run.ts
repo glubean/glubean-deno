@@ -742,6 +742,10 @@ export async function runCommand(
 
     // Build batch: all test IDs from this file
     const testIds = fileTests.map((ft) => ft.test.meta.id);
+    const exportNames: Record<string, string> = {};
+    for (const ft of fileTests) {
+      exportNames[ft.test.meta.id] = ft.exportName;
+    }
     const testMap = new Map(
       fileTests.map((ft) => [ft.test.meta.id, ft]),
     );
@@ -910,6 +914,7 @@ export async function runCommand(
           ...toSingleExecutionOptions(shared),
           timeout: batchTimeout,
           testIds,
+          exportNames,
         },
       )
     ) {

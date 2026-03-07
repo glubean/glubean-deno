@@ -519,7 +519,7 @@ export class TestExecutor {
     testUrl: string,
     testId: string,
     context: ExecutionContext,
-    options?: { timeout?: number; exportName?: string; testIds?: string[] },
+    options?: { timeout?: number; exportName?: string; testIds?: string[]; exportNames?: Record<string, string> },
   ): AsyncGenerator<ExecutionEvent> {
     // Build V8 flags
     const v8Flags: string[] = [];
@@ -592,6 +592,13 @@ export class TestExecutor {
     }
     if (options?.exportName) {
       args.push(`--exportName=${options.exportName}`);
+    }
+    if (options?.exportNames && Object.keys(options.exportNames).length > 0) {
+      // Pass testId→exportName mapping for batch mode fallback (test.pick)
+      const pairs = Object.entries(options.exportNames)
+        .map(([id, name]) => `${id}:${name}`)
+        .join(",");
+      args.push(`--exportNames=${pairs}`);
     }
     if (this.options.emitFullTrace) {
       args.push("--emitFullTrace");

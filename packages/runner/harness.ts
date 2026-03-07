@@ -81,6 +81,16 @@ const testId = args.testId;
 const testIds = args.testIds ? args.testIds.split(",") : undefined;
 /** Optional export name for fallback lookup (used by test.pick/test.each). */
 const exportName = args.exportName;
+/** Optional testId→exportName mapping for batch mode fallback (test.pick). */
+const exportNamesMap: Record<string, string> = {};
+if (args.exportNames) {
+  for (const pair of (args.exportNames as string).split(",")) {
+    const sep = pair.indexOf(":");
+    if (sep > 0) {
+      exportNamesMap[pair.slice(0, sep)] = pair.slice(sep + 1);
+    }
+  }
+}
 
 if (!testUrl || (!testId && !testIds)) {
   console.log(
@@ -1374,7 +1384,13 @@ try {
     let hasFailure = false;
     for (const id of testIds) {
       resetTestCounters();
-      const testObj = findTestById(userModule, id);
+      let testObj = findTestById(userModule, id);
+      // Fallback for non-deterministic tests (test.pick): the testId from
+      // discovery may differ from this run's random selection. Use the stable
+      // exportName to locate the test.
+      if (!testObj && exportNamesMap[id]) {
+        testObj = findTestByExport(userModule, exportNamesMap[id]);
+      }
       if (!testObj) {
         console.log(
           JSON.stringify({
