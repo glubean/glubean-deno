@@ -1084,6 +1084,7 @@ globalThis.fetch = async (input, init) => {
 };
 
 const kyInstance = ky.create({
+  throwHttpErrors: false,
   hooks: {
     beforeRequest: [
       // deno-lint-ignore no-explicit-any
