@@ -29,11 +29,22 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
   // Resolve token: flag → interactive prompt
   let token = options.token;
   if (!token) {
+    const appUrl = apiUrl.replace("api.", "app.");
     console.log(
-      `${colors.dim}Get a project token from your project settings at ${apiUrl.replace("api.", "app.")}${colors.reset}`,
+      `${colors.bold}Create a personal access token:${colors.reset}`,
     );
+    console.log(
+      `  ${colors.dim}${appUrl}/settings/tokens${colors.reset}`,
+    );
+    console.log(
+      `  ${colors.dim}This token grants access to all your projects.${colors.reset}`,
+    );
+    console.log(
+      `  ${colors.dim}For per-project tokens, use project settings → API keys.${colors.reset}`,
+    );
+    console.log();
     token = await Secret.prompt({
-      message: "Paste your project token (gpt_...)",
+      message: "Paste your token (gb_...)",
     });
   }
 
@@ -88,7 +99,7 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
   });
 
   console.log(
-    `${colors.green}Credentials saved to ${savedPath}${colors.reset}`,
+    `${colors.green}Credentials saved${colors.reset} ${colors.dim}→ ${savedPath}${colors.reset}`,
   );
   if (projectId) {
     console.log(
@@ -96,6 +107,6 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
     );
   }
   console.log(
-    `\n${colors.dim}You can now run: glubean run --upload${colors.reset}`,
+    `\n${colors.dim}Run tests and upload: glubean run --upload${colors.reset}`,
   );
 }

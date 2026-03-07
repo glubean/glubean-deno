@@ -378,7 +378,10 @@ export async function runCommand(
       `\n${colors.red}❌ No test files found for target: ${target}${colors.reset}`,
     );
     console.error(
-      `${colors.dim}Check that your test directory contains *.test.ts files.${colors.reset}\n`,
+      `${colors.dim}Glubean looks for files matching *.test.ts in the target directory.${colors.reset}`,
+    );
+    console.error(
+      `${colors.dim}Run "glubean run tests/" or "glubean run path/to/file.test.ts".${colors.reset}\n`,
     );
     await writeEmptyResult(target, runStartLocal);
     Deno.exit(1);
@@ -560,7 +563,7 @@ export async function runCommand(
       }${colors.reset}`,
     );
     console.error(
-      `${colors.dim}Make sure to export tests using test()${colors.reset}\n`,
+      `${colors.dim}Each test file must export tests: export const myTest = test("id")...${colors.reset}\n`,
     );
     Deno.exit(1);
   }
