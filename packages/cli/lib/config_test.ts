@@ -184,7 +184,7 @@ Deno.test("loadConfig: no deno.json returns defaults", async () => {
     const config = await loadConfig(dir);
     assertEquals(config.run, { ...RUN_DEFAULTS });
     // Redaction should be the default config
-    assertEquals(config.redaction.replacementFormat, "simple");
+    assertEquals(config.redaction.replacementFormat, "partial");
     assertEquals(config.redaction.scopes.requestHeaders, true);
   });
 });
