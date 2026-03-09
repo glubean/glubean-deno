@@ -7,7 +7,7 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
-import { ky } from "@glubean/sdk";
+import ky from "ky";
 import {
   classifyHostnameBlockReason,
   classifyIpBlockReason,

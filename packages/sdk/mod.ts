@@ -1514,8 +1514,3 @@ export { definePlugin } from "./plugin.ts";
 // Re-export assertion utilities
 export { Expectation, ExpectFailError } from "./expect.ts";
 export type { AssertEmitter, AssertionEmission, CustomMatchers, MatcherFn, MatcherResult } from "./expect.ts";
-
-// Re-export ky — SDK wraps ky for HTTP, so it's a first-class dependency.
-// This ensures runner/harness can import ky via SDK without requiring users
-// to declare ky in their own deno.json.
-export { default as ky } from "ky";
