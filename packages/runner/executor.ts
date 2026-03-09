@@ -2,6 +2,15 @@ import type { ApiTrace, GlubeanAction, GlubeanEvent } from "@glubean/sdk";
 import { resolveAllowNetFlag } from "./config.ts";
 import type { SharedRunConfig } from "./config.ts";
 
+/**
+ * Internal imports that harness.ts needs but consumers don't declare.
+ * These are merged into the consumer's deno.json when spawning the harness.
+ */
+const HARNESS_INTERNAL_IMPORTS: Record<string, string> = {
+  "@std/cli": "jsr:@std/cli@^1.0.0",
+  "ky": "npm:ky@^1.14.0",
+};
+
 // Constants
 const DEFAULT_CONCURRENCY = 1;
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
@@ -452,10 +461,64 @@ export class TestExecutor {
   private harnessPath: string;
   private options: ExecutorOptions;
 
+  private mergedConfigPath: string | undefined;
+
   constructor(options: ExecutorOptions = {}) {
     // Use full URL for JSR compatibility (pathname doesn't work with jsr: URLs)
     this.harnessPath = new URL("./harness.ts", import.meta.url).href;
     this.options = options;
+  }
+
+  /**
+   * Create a merged deno.json that includes both the consumer's config
+   * and the harness's internal dependencies. This ensures the harness
+   * subprocess can resolve its own imports (e.g. @std/cli, ky) without
+   * requiring consumers to declare them.
+   */
+  private async buildMergedConfig(): Promise<string | undefined> {
+    const configPath = this.options.configPath;
+    if (!configPath) return undefined;
+
+    try {
+      const raw = await Deno.readTextFile(configPath);
+      const config = JSON.parse(raw);
+      const imports = config.imports ?? {};
+
+      // Merge internal imports (consumer's declarations take precedence)
+      let needsMerge = false;
+      const merged = { ...imports };
+      for (const [key, value] of Object.entries(HARNESS_INTERNAL_IMPORTS)) {
+        if (!(key in merged)) {
+          merged[key] = value;
+          needsMerge = true;
+        }
+      }
+
+      if (!needsMerge) return configPath;
+
+      // Write merged config to a temp file next to the original
+      const dir = configPath.replace(/[/\\][^/\\]+$/, "");
+      const tmpPath = `${dir}/.glubean-merged-deno.json`;
+      const mergedConfig = { ...config, imports: merged };
+      await Deno.writeTextFile(tmpPath, JSON.stringify(mergedConfig, null, 2));
+      this.mergedConfigPath = tmpPath;
+      return tmpPath;
+    } catch {
+      // If we can't read/merge, fall back to original
+      return configPath;
+    }
+  }
+
+  /** Remove the temporary merged config file if it was created. */
+  private async cleanupMergedConfig(): Promise<void> {
+    if (this.mergedConfigPath) {
+      try {
+        await Deno.remove(this.mergedConfigPath);
+      } catch {
+        // Ignore cleanup errors
+      }
+      this.mergedConfigPath = undefined;
+    }
   }
 
   /**
@@ -569,11 +632,10 @@ export class TestExecutor {
       }
     }
 
-    // GLUBEAN_DEV_CONFIG overrides the config path for local development,
-    // so the harness subprocess can resolve runner dependencies (e.g. ky)
-    // from the local workspace instead of the test project's deno.json.
-    const devConfig = Deno.env.get("GLUBEAN_DEV_CONFIG");
-    const effectiveConfig = devConfig || this.options.configPath;
+    // Merge harness internal dependencies into the consumer's deno.json
+    // so the subprocess can resolve @std/cli, ky, etc. without requiring
+    // consumers to declare them.
+    const effectiveConfig = await this.buildMergedConfig();
     if (effectiveConfig) {
       args.push(`--config=${effectiveConfig}`);
     }
@@ -785,6 +847,7 @@ export class TestExecutor {
       } catch {
         // Process may already be dead
       }
+      await this.cleanupMergedConfig();
     }
   }
 
