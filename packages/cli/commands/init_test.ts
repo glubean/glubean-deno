@@ -100,6 +100,7 @@ Deno.test("init --no-interactive creates basic project files", async () => {
       await fileExists(join(dir, "data/search-examples.json")),
       true,
     );
+    assertEquals(await fileExists(join(dir, "CLAUDE.md")), true);
     assertEquals(await fileExists(join(dir, "AGENTS.md")), true);
 
     // Explore files
@@ -552,9 +553,10 @@ Deno.test("init --minimal creates minimal files", async () => {
       true,
     );
 
-    // tests/ has demo but no standard-only files
+    // tests/ has demo + AI instruction files
     assertEquals(await fileExists(join(dir, "tests/demo.test.ts")), true);
-    assertEquals(await fileExists(join(dir, "AGENTS.md")), false);
+    assertEquals(await fileExists(join(dir, "CLAUDE.md")), true);
+    assertEquals(await fileExists(join(dir, "AGENTS.md")), true);
 
     // Staging env files
     assertEquals(await fileExists(join(dir, ".env.staging")), true);
