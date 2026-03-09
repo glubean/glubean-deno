@@ -61,6 +61,28 @@ Before submitting any test, verify:
 - [ ] Creates resources → has `.teardown()` cleanup
 - [ ] No hardcoded secrets or test data in the test file
 
+## Coverage Expectations
+
+Do not stop at a single happy-path test unless the user explicitly asks for only one case.
+
+- For authentication/identity endpoints, include:
+  - one authenticated success case
+  - one unauthenticated or invalid-credential case
+- For protected resources, include authorization failure cases (`401` or `403`) when applicable.
+- For create/update endpoints, include at least one invalid-input case when the contract documents validation rules.
+- If the OpenAPI spec lacks enough detail for a negative case, say so explicitly and choose the safest verifiable case.
+
+## Definition of Done for API Tests
+
+Before considering an API test complete, verify whether the endpoint has:
+
+- a success path
+- an auth boundary
+- a validation boundary
+- a not-found or forbidden boundary
+
+Cover all applicable boundaries unless the user asked for a narrower scope.
+
 ## Import Convention
 
 Always use the import map alias defined in `deno.json`, never hardcoded JSR URLs:
