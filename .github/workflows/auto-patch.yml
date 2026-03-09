@@ -90,11 +90,9 @@ jobs:
 
       - name: Publish changed packages
         run: |
-          echo '${{ needs.detect.outputs.packages }}' | jq -c '.[]' | while read -r pkg; do
-            DIR=$(echo "$pkg" | jq -r '.dir')
-            NAME=$(echo "$pkg" | jq -r '.name')
-            VERSION=$(echo "$pkg" | jq -r '.version')
-
+          FAILED=""
+          publish_pkg() {
+            local DIR="$1" NAME="$2" VERSION="$3"
             echo "Publishing $NAME@$VERSION from $DIR..."
             cd "$DIR"
             if deno publish --token "$JSR_TOKEN" 2>&1; then
@@ -103,9 +101,37 @@ jobs:
               if deno publish --dry-run 2>&1 | grep -q "already exists"; then
                 echo "⏭️  $NAME@$VERSION already exists on JSR, skipping"
               else
-                echo "::error::Failed to publish $NAME@$VERSION"
-                exit 1
+                echo "⚠️  $NAME@$VERSION failed (may retry)"
+                FAILED="$FAILED $NAME"
+                cd "$GITHUB_WORKSPACE"
+                return 1
               fi
             fi
             cd "$GITHUB_WORKSPACE"
+          }
+
+          # Pass 1: try all packages (some may fail due to dependency order)
+          RETRY_PKGS=""
+          echo '${{ needs.detect.outputs.packages }}' | jq -c '.[]' | while read -r pkg; do
+            DIR=$(echo "$pkg" | jq -r '.dir')
+            NAME=$(echo "$pkg" | jq -r '.name')
+            VERSION=$(echo "$pkg" | jq -r '.version')
+            if ! publish_pkg "$DIR" "$NAME" "$VERSION"; then
+              RETRY_PKGS="$RETRY_PKGS|$pkg"
+            fi
           done
+
+          # Pass 2: retry failures (dependencies should be published now)
+          if [ -n "$RETRY_PKGS" ]; then
+            echo ""
+            echo "🔄 Retrying failed packages..."
+            echo "$RETRY_PKGS" | tr '|' '\n' | grep -v '^$' | while read -r pkg; do
+              DIR=$(echo "$pkg" | jq -r '.dir')
+              NAME=$(echo "$pkg" | jq -r '.name')
+              VERSION=$(echo "$pkg" | jq -r '.version')
+              if ! publish_pkg "$DIR" "$NAME" "$VERSION"; then
+                echo "::error::Failed to publish $NAME@$VERSION"
+                exit 1
+              fi
+            done
+          fi
