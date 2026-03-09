@@ -34,9 +34,10 @@ function createEngine(overrides?: Partial<RedactionConfig>): RedactionEngine {
 Deno.test("sensitive-keys: exact match redacts value", () => {
   const engine = createEngine();
   const result = engine.redact({ password: "my-secret-pass" });
+  // Default format is "partial" → genericPartialMask("my-secret-pass") = "my-***ass"
   assertEquals(
     (result.value as Record<string, unknown>).password,
-    "[REDACTED]",
+    "my-***ass",
   );
   assertEquals(result.redacted, true);
 });
@@ -47,18 +48,20 @@ Deno.test("sensitive-keys: substring match redacts value", () => {
   const result = engine.redact({
     "x-authorization-token": "Bearer abc123",
   });
+  // partial → genericPartialMask("Bearer abc123") = "Bea***123"
   assertEquals(
     (result.value as Record<string, unknown>)["x-authorization-token"],
-    "[REDACTED]",
+    "Bea***123",
   );
 });
 
 Deno.test("sensitive-keys: case insensitive", () => {
   const engine = createEngine();
   const result = engine.redact({ Authorization: "Bearer abc123" });
+  // partial → genericPartialMask("Bearer abc123") = "Bea***123"
   assertEquals(
     (result.value as Record<string, unknown>).Authorization,
-    "[REDACTED]",
+    "Bea***123",
   );
 });
 
@@ -82,9 +85,10 @@ Deno.test("sensitive-keys: additional keys from config", () => {
     plugins: createBuiltinPlugins(config),
   });
   const result = engine.redact({ "x-custom-secret": "value" });
+  // partial → genericPartialMask("value") = "va***e" (5 chars → medium)
   assertEquals(
     (result.value as Record<string, unknown>)["x-custom-secret"],
-    "[REDACTED]",
+    "va***e",
   );
 });
 
@@ -115,7 +119,8 @@ Deno.test("jwt: detects JWT token in string", () => {
   const engine = createEngine();
   const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123signature";
   const result = engine.redact(jwt);
-  assertEquals(result.value, "[REDACTED]");
+  // partial → jwt partialMask: first 3 + "***" + last 3
+  assertEquals(result.value, "eyJ***ure");
   assertEquals(result.redacted, true);
 });
 
@@ -123,7 +128,8 @@ Deno.test("jwt: detects JWT embedded in a string", () => {
   const engine = createEngine();
   const text = "Token is eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123sig here";
   const result = engine.redact(text);
-  assertEquals(result.value, "Token is [REDACTED] here");
+  // partial → jwt partialMask: first 3 + "***" + last 3
+  assertEquals(result.value, "Token is eyJ***sig here");
 });
 
 Deno.test("bearer: detects Bearer token", () => {
@@ -137,45 +143,52 @@ Deno.test("bearer: detects Bearer token", () => {
 Deno.test("awsKeys: detects AWS access key", () => {
   const engine = createEngine();
   const result = engine.redact("Key is AKIAIOSFODNN7EXAMPLE");
-  assertEquals(result.value, "Key is [REDACTED]");
+  // partial → aws partialMask: first 4 + "***" + last 2
+  assertEquals(result.value, "Key is AKIA***LE");
 });
 
 Deno.test("githubTokens: detects GitHub PAT", () => {
   const engine = createEngine();
   const ghp = "ghp_" + "a".repeat(40);
   const result = engine.redact(`Token: ${ghp}`);
-  assertEquals(result.value, "Token: [REDACTED]");
+  // partial → github partialMask: "ghp_" + "***" + last 3
+  assertEquals(result.value, "Token: ghp_***aaa");
 });
 
 Deno.test("email: detects email address", () => {
   const engine = createEngine();
   const result = engine.redact("Contact: user@example.com");
-  assertEquals(result.value, "Contact: [REDACTED]");
+  // partial → email partialMask: "u***@***.com"
+  assertEquals(result.value, "Contact: u***@***.com");
 });
 
 Deno.test("ipAddress: detects IPv4 address", () => {
   const engine = createEngine();
   const result = engine.redact("Server: 192.168.1.100");
-  assertEquals(result.value, "Server: [REDACTED]");
+  // partial → ip partialMask: "192.168.*.*"
+  assertEquals(result.value, "Server: 192.168.*.*");
 });
 
 Deno.test("creditCard: detects card number", () => {
   const engine = createEngine();
   const result = engine.redact("Card: 4111-1111-1111-1111");
-  assertEquals(result.value, "Card: [REDACTED]");
+  // partial → cc partialMask: "****-****-****-1111"
+  assertEquals(result.value, "Card: ****-****-****-1111");
 });
 
 Deno.test("creditCard: detects card number without separators", () => {
   const engine = createEngine();
   const result = engine.redact("Card: 4111111111111111");
-  assertEquals(result.value, "Card: [REDACTED]");
+  // partial → cc partialMask: "****-****-****-1111"
+  assertEquals(result.value, "Card: ****-****-****-1111");
 });
 
 Deno.test("hexKeys: detects long hex string", () => {
   const engine = createEngine();
   const hex = "a".repeat(32);
   const result = engine.redact(`Key: ${hex}`);
-  assertEquals(result.value, "Key: [REDACTED]");
+  // partial → genericPartialMask("a"x32) = "aaa***aaa"
+  assertEquals(result.value, "Key: aaa***aaa");
 });
 
 Deno.test("hexKeys: ignores short hex string", () => {
@@ -259,7 +272,8 @@ Deno.test("recursive: nested object", () => {
   // deno-lint-ignore no-explicit-any
   const value = result.value as any;
   assertEquals(value.user.name, "John");
-  assertEquals(value.user.settings.password, "[REDACTED]");
+  // partial → genericPartialMask("secret123") = "sec***123"
+  assertEquals(value.user.settings.password, "sec***123");
 });
 
 Deno.test("recursive: array of objects", () => {
@@ -270,18 +284,22 @@ Deno.test("recursive: array of objects", () => {
     { token: "tok123" },
   ]);
   const value = result.value as Array<Record<string, unknown>>;
-  assertEquals(value[0].api_key, "[REDACTED]");
+  // partial → genericPartialMask("key1") = "****" (<=4 chars)
+  assertEquals(value[0].api_key, "****");
   assertEquals(value[1].username, "john");
-  assertEquals(value[2].token, "[REDACTED]");
+  // partial → genericPartialMask("tok123") = "to***3" (6 chars → medium)
+  assertEquals(value[2].token, "to***3");
 });
 
 Deno.test("recursive: array of strings with patterns", () => {
   const engine = createEngine();
   const result = engine.redact(["user@example.com", "hello", "192.168.1.1"]);
   const value = result.value as string[];
-  assertEquals(value[0], "[REDACTED]");
+  // partial → email partialMask
+  assertEquals(value[0], "u***@***.com");
   assertEquals(value[1], "hello");
-  assertEquals(value[2], "[REDACTED]");
+  // partial → ip partialMask
+  assertEquals(value[2], "192.168.*.*");
 });
 
 Deno.test("recursive: depth guard triggers at max depth", () => {
@@ -386,14 +404,16 @@ Deno.test("scope: disabled scope skips redaction", () => {
 Deno.test("scope: enabled scope applies redaction", () => {
   const engine = createEngine();
   const result = engine.redact("user@example.com", "consoleOutput");
-  assertEquals(result.value, "[REDACTED]");
+  // partial → email partialMask
+  assertEquals(result.value, "u***@***.com");
   assertEquals(result.redacted, true);
 });
 
 Deno.test("scope: no scope specified always redacts", () => {
   const engine = createEngine();
   const result = engine.redact("user@example.com");
-  assertEquals(result.value, "[REDACTED]");
+  // partial → email partialMask
+  assertEquals(result.value, "u***@***.com");
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -424,19 +444,22 @@ Deno.test("adapter: trace event redacts headers and bodies", () => {
     unknown
   >;
 
-  // Headers: authorization key is sensitive
+  // Headers: authorization key is sensitive → partial mask
   const reqHeaders = data.requestHeaders as Record<string, unknown>;
-  assertEquals(reqHeaders.authorization, "[REDACTED]");
+  // genericPartialMask("Bearer secret-token-123") = "Bea***123"
+  assertEquals(reqHeaders.authorization, "Bea***123");
   assertEquals(reqHeaders["content-type"], "application/json");
 
-  // Body: password key is sensitive
+  // Body: password key is sensitive → partial mask
   const reqBody = data.requestBody as Record<string, unknown>;
-  assertEquals(reqBody.password, "[REDACTED]");
+  // genericPartialMask("mysecret") = "my***t" (7 chars → medium)
+  assertEquals(reqBody.password, "my***t");
   assertEquals(reqBody.username, "john");
 
-  // Response body: token key is sensitive
+  // Response body: token key is sensitive → partial mask
   const resBody = data.responseBody as Record<string, unknown>;
-  assertEquals(resBody.token, "[REDACTED]");
+  // genericPartialMask("new-access-token") = "new***ken"
+  assertEquals(resBody.token, "new***ken");
 });
 
 Deno.test("adapter: log event redacts message and data", () => {
@@ -447,10 +470,12 @@ Deno.test("adapter: log event redacts message and data", () => {
     data: { password: "secret" },
   };
   const redacted = redactEvent(engine, event);
-  assertEquals(redacted.message, "User email: [REDACTED]");
+  // partial → email partialMask
+  assertEquals(redacted.message, "User email: u***@***.com");
+  // partial → genericPartialMask("secret") = "se***t" (6 chars → medium)
   assertEquals(
     (redacted.data as Record<string, unknown>).password,
-    "[REDACTED]",
+    "se***t",
   );
 });
 
@@ -479,7 +504,8 @@ Deno.test("adapter: error event redacts message", () => {
     message: "Failed with key AKIAIOSFODNN7EXAMPLE",
   };
   const redacted = redactEvent(engine, event);
-  assertEquals(redacted.message, "Failed with key [REDACTED]");
+  // partial → aws partialMask: first 4 + "***" + last 2
+  assertEquals(redacted.message, "Failed with key AKIA***LE");
 });
 
 Deno.test("adapter: status event redacts error and stack", () => {
@@ -577,9 +603,10 @@ Deno.test(
     // requestHeaders scope disabled → passes through
     const reqHeaders = data.requestHeaders as Record<string, unknown>;
     assertEquals(reqHeaders.authorization, "Bearer secret");
-    // responseBody scope still enabled → redacted
+    // responseBody scope still enabled → partial mask
     const resBody = data.responseBody as Record<string, unknown>;
-    assertEquals(resBody.token, "[REDACTED]");
+    // genericPartialMask("abc") = "****" (<=4 chars)
+    assertEquals(resBody.token, "****");
   },
 );
 
@@ -619,7 +646,8 @@ Deno.test("custom pattern: detects user-defined regex", () => {
     plugins: createBuiltinPlugins(config),
   });
   const result = engine.redact("Key: nbai_abcdef0123456789");
-  assertEquals(result.value, "Key: [REDACTED]");
+  // partial → genericPartialMask("nbai_abcdef0123456789") = "nba***789"
+  assertEquals(result.value, "Key: nba***789");
 });
 
 Deno.test("custom pattern: invalid regex is skipped", () => {

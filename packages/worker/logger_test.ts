@@ -140,10 +140,15 @@ Deno.test("logger redacts sensitive fields", () => {
 
   const entry = JSON.parse(logs[0]);
   assertEquals(entry.username, "john");
-  assertEquals(entry.password, "[REDACTED]");
-  assertEquals(entry.token, "[REDACTED]");
-  assertEquals(entry.apiKey, "[REDACTED]");
-  assertEquals(entry.leaseToken, "[REDACTED]");
+  // Default format is now "partial" → genericPartialMask applied
+  // "secret123" (9 chars) → "sec***123"
+  assertEquals(entry.password, "sec***123");
+  // "bearer_xxx" (10 chars) → "bea***xxx"
+  assertEquals(entry.token, "bea***xxx");
+  // "key_abc" (7 chars) → "ke***c"
+  assertEquals(entry.apiKey, "ke***c");
+  // "lease_xyz" (9 chars) → "lea***xyz"
+  assertEquals(entry.leaseToken, "lea***xyz");
 });
 
 Deno.test("logger redacts nested sensitive fields", () => {
@@ -161,7 +166,9 @@ Deno.test("logger redacts nested sensitive fields", () => {
 
   const entry = JSON.parse(logs[0]);
   assertEquals(entry.user.name, "john");
-  assertEquals(entry.user.secrets, "[REDACTED]");
+  // "secrets" matches "secret" (substring) → key-level redaction
+  // partial → genericPartialMask(String({apiKey:"abc123"})) = genericPartialMask("[object Object]") = "[ob***ct]"
+  assertEquals(entry.user.secrets, "[ob***ct]");
 });
 
 Deno.test("noopLogger does nothing", () => {
