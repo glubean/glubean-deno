@@ -11,6 +11,7 @@
     ]
   },
   "imports": {
-    "@glubean/runner": "jsr:@glubean/runner@^0.12.0"
+    "@glubean/runner": "jsr:@glubean/runner@^0.12.0",
+    "@glubean/scanner": "jsr:@glubean/scanner@^0.12.0"
   }
 }
