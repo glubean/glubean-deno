@@ -95,7 +95,33 @@ glubean run --upload                 # Run and upload results to Cloud
 
 For all CLI options, run `glubean --help` or `glubean run --help`.
 
-## MCP Tools (if configured)
+## MCP Setup (enables AI closed-loop)
+
+Without MCP, the AI can only write tests. With MCP, the AI can: **write → run → read failures → fix → rerun → pass** —
+without human intervention.
+
+### Claude Code
+
+```bash
+claude mcp add glubean -- deno run -A jsr:@glubean/mcp
+```
+
+### Cursor
+
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "glubean": {
+      "command": "deno",
+      "args": ["run", "-A", "jsr:@glubean/mcp"]
+    }
+  }
+}
+```
+
+### Available MCP Tools
 
 - `glubean_run_local_file` — run a test file locally, returns structured results (assertions, logs, traces)
 - `glubean_discover_tests` — scan a file and return test export metadata (id, name, tags)
