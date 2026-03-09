@@ -758,9 +758,14 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       description: "Search examples for test.pick",
     },
     {
+      path: "CLAUDE.md",
+      content: () => readCliTemplate("AI-INSTRUCTIONS.md"),
+      description: "AI instructions (Claude Code, Cursor)",
+    },
+    {
       path: "AGENTS.md",
-      content: () => readCliTemplate("AGENTS.md"),
-      description: "AI agent guidelines",
+      content: () => readCliTemplate("AI-INSTRUCTIONS.md"),
+      description: "AI instructions (Codex, other agents)",
     },
   ];
 
@@ -864,7 +869,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       `  3. Run ${colors.cyan}deno task explore${colors.reset} to run explore/ tests`,
     );
     console.log(
-      `  4. Read ${colors.cyan}AGENTS.md${colors.reset} for AI agent integration guide`,
+      `  4. Keep ${colors.cyan}CLAUDE.md${colors.reset} or ${colors.cyan}AGENTS.md${colors.reset} — delete whichever you don't need`,
     );
     console.log(
       `  5. Run ${colors.cyan}glubean context${colors.reset} to generate AI context\n`,
@@ -941,6 +946,16 @@ async function initMinimal(overwrite: boolean): Promise<void> {
       path: "data/search-examples.json",
       content: () => readCliTemplate("data/search-examples.json"),
       description: "Search parameters for pick examples",
+    },
+    {
+      path: "CLAUDE.md",
+      content: () => readCliTemplate("AI-INSTRUCTIONS.md"),
+      description: "AI instructions (Claude Code, Cursor)",
+    },
+    {
+      path: "AGENTS.md",
+      content: () => readCliTemplate("AI-INSTRUCTIONS.md"),
+      description: "AI instructions (Codex, other agents)",
     },
   ];
 
