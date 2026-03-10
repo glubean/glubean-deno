@@ -122,8 +122,6 @@ glubean run path/to/file.test.ts       # Run a specific file
 glubean run --env-file .env.staging    # Use specific environment
 glubean run --inspect-brk              # Debug with VS Code
 glubean scan                           # Generate metadata.json
-glubean diff --openapi spec.json       # Show API spec changes
-glubean coverage --openapi spec.json   # API test coverage report
 glubean upgrade                        # Self-update CLI
 ```
 

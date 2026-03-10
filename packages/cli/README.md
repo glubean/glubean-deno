@@ -29,17 +29,14 @@ glubean run                           # Run all tests
 
 ## Commands at a Glance
 
-| Command            | Description                          | Typical user          |
-| ------------------ | ------------------------------------ | --------------------- |
-| `glubean init`     | Scaffold a new project               | Everyone              |
-| `glubean run`      | Run tests locally or in CI           | Everyone              |
-| `glubean upgrade`  | Self-update to latest version        | Everyone              |
-| `glubean diff`     | Show OpenAPI spec changes vs git ref | API teams             |
-| `glubean coverage` | Analyze endpoint test coverage       | API teams             |
-| `glubean context`  | Generate AI-optimized context file   | AI-assisted workflows |
-| `glubean scan`     | Generate metadata.json               | CI / Cloud            |
-| `glubean sync`     | Upload tests to Glubean Cloud        | Cloud (coming soon)   |
-| `glubean trigger`  | Trigger a remote run                 | Cloud (coming soon)   |
+| Command           | Description                   | Typical user        |
+| ----------------- | ----------------------------- | ------------------- |
+| `glubean init`    | Scaffold a new project        | Everyone            |
+| `glubean run`     | Run tests locally or in CI    | Everyone            |
+| `glubean upgrade` | Self-update to latest version | Everyone            |
+| `glubean scan`    | Generate metadata.json        | CI / Cloud          |
+| `glubean sync`    | Upload tests to Glubean Cloud | Cloud (coming soon) |
+| `glubean trigger` | Trigger a remote run          | Cloud (coming soon) |
 
 ---
 
@@ -118,38 +115,6 @@ glubean run tests/                     # Run all tests in a directory
 ```bash
 glubean upgrade           # Update to latest version
 glubean upgrade --force   # Force reinstall even if up to date
-```
-
----
-
-## Analysis Commands
-
-### `glubean diff`
-
-Compare the current OpenAPI spec against a git ref to find untested API changes.
-
-```bash
-glubean diff --openapi openapi.json              # Compare against HEAD
-glubean diff --openapi openapi.json --base main  # Compare against main branch
-glubean diff --openapi openapi.json --json       # Output raw JSON
-```
-
-### `glubean coverage`
-
-Analyze API endpoint test coverage based on OpenAPI spec and test traces.
-
-```bash
-glubean coverage --openapi openapi.json          # Coverage report
-glubean coverage --openapi openapi.json --json   # Machine-readable output
-```
-
-### `glubean context`
-
-Generate an AI-optimized context file for use with LLMs and MCP servers.
-
-```bash
-glubean context                                  # Auto-detect spec
-glubean context --openapi openapi.json --out .glubean-context.md
 ```
 
 ---

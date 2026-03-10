@@ -359,7 +359,7 @@ export async function runCommand(
   const runStartTime = runStartDate.toISOString();
   const runStartLocal = localTimeString(runStartDate);
 
-  // Collect traces for .glubean/traces.json (used by `glubean coverage`)
+  // Collect traces for .glubean/traces.json
   const traceCollector: Array<{
     testId: string;
     method: string;
@@ -1345,7 +1345,7 @@ export async function runCommand(
     console.log(`${colors.dim}Log written to: ${logPath}${colors.reset}\n`);
   }
 
-  // Write .glubean/traces.json for `glubean coverage`
+  // Write .glubean/traces.json
   if (traceCollector.length > 0) {
     try {
       const glubeanDir = resolve(rootDir, ".glubean");

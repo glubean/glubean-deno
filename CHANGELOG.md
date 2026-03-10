@@ -29,9 +29,6 @@ All notable changes to the Glubean OSS project will be documented in this file.
 
 ### @glubean/cli
 
-- **`glubean context`** — Generate AI context file from OpenAPI spec
-- **`glubean coverage`** — API endpoint test coverage report against OpenAPI spec
-- **`glubean diff`** — OpenAPI spec change detection (vs git HEAD)
 - **Directory convention** — `tests/` and `explore/` directories replace `*.explore.ts` suffix
 - **`glubean run`** — Defaults to `testDir`, `--explore` scans `exploreDir`
 - **Unified .env parsing** — Replaced hand-rolled parser with `@std/dotenv` for robust handling of quotes, comments, and

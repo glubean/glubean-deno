@@ -32,7 +32,7 @@ Every consumer of test metadata falls into one of three categories:
 ### 1. Scanner — `extractWithDeno` (Runtime, subprocess)
 
 **Location:** `packages/scanner/extractor-deno.ts`\
-**Used by:** `glubean scan`, `glubean sync`, `glubean context`, `glubean coverage`
+**Used by:** `glubean scan`, `glubean sync`
 
 Spawns a Deno subprocess, imports the test module, resolves all export shapes, and reads the SDK global registry as a
 fallback.
@@ -162,7 +162,7 @@ Three authoritative sources, zero duplication:
 │   Used by: VSCode, MCP list_test_files, MCP get_metadata(static)
 │
 ├── extractWithDeno()       ← Runtime (subprocess, most accurate)
-│   Used by: CLI scan/sync/context/coverage, CLI run (P1 migration)
+│   Used by: CLI scan/sync, CLI run (P1 migration)
 │
 └── types.ts                ← Shared types (ExportMeta, FileMeta, etc.)
 
