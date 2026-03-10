@@ -442,6 +442,35 @@ PASSWORD=
 `;
 
 // ---------------------------------------------------------------------------
+// Dependency installation
+// ---------------------------------------------------------------------------
+
+async function installDependencies(): Promise<void> {
+  console.log(
+    `\n${colors.dim}Installing dependencies...${colors.reset}`,
+  );
+  const cmd = new Deno.Command("deno", {
+    args: ["install"],
+    stdout: "piped",
+    stderr: "piped",
+  });
+  const result = await cmd.output();
+  if (result.success) {
+    console.log(
+      `  ${colors.green}✓${colors.reset} Dependencies installed\n`,
+    );
+  } else {
+    const stderr = new TextDecoder().decode(result.stderr);
+    console.log(
+      `  ${colors.yellow}⚠${colors.reset} Failed to install dependencies. Run ${colors.cyan}deno install${colors.reset} manually.`,
+    );
+    if (stderr.trim()) {
+      console.log(`  ${colors.dim}${stderr.trim()}${colors.reset}\n`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
 
@@ -858,6 +887,8 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   );
 
   if (created > 0) {
+    await installDependencies();
+
     console.log(`${colors.bold}Next steps:${colors.reset}`);
     console.log(
       `  1. Run ${colors.cyan}deno task test${colors.reset} to run all tests in tests/`,
@@ -998,6 +1029,8 @@ async function initMinimal(overwrite: boolean): Promise<void> {
   );
 
   if (created > 0) {
+    await installDependencies();
+
     console.log(`${colors.bold}Next steps:${colors.reset}`);
     console.log(
       `  1. Run ${colors.cyan}deno task explore${colors.reset} to run all explore tests`,
