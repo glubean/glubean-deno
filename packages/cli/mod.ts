@@ -14,11 +14,9 @@ import { syncCommand } from "./commands/sync.ts";
 import { triggerCommand } from "./commands/trigger.ts";
 import { validateMetadataCommand } from "./commands/validate_metadata.ts";
 import { workerCommand } from "./commands/worker.ts";
-import { diffCommand } from "./commands/diff.ts";
-import { coverageCommand } from "./commands/coverage.ts";
-import { contextCommand } from "./commands/context.ts";
 import { upgradeCommand } from "./commands/upgrade.ts";
 import { loginCommand } from "./commands/login.ts";
+import { patchCommand } from "./commands/patch.ts";
 import { CLI_VERSION } from "./version.ts";
 import { abortUpdateCheck, checkForUpdates } from "./update_check.ts";
 
@@ -269,59 +267,6 @@ cli
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// diff command
-// ─────────────────────────────────────────────────────────────────────────────
-cli
-  .command("diff", "Show OpenAPI spec changes vs a git ref")
-  .option("--openapi <path:string>", "Path to OpenAPI spec file")
-  .option("--base <ref:string>", "Git ref to compare against (default: HEAD)", {
-    default: "HEAD",
-  })
-  .option("--json", "Output raw JSON for programmatic use")
-  .action(async (options) => {
-    await diffCommand({
-      openapi: options.openapi,
-      base: options.base,
-      json: options.json,
-    });
-  });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// coverage command
-// ─────────────────────────────────────────────────────────────────────────────
-cli
-  .command("coverage", "Show API endpoint test coverage")
-  .option("--openapi <path:string>", "Path to OpenAPI spec file")
-  .option("-d, --dir <path:string>", "Project root", { default: "." })
-  .option("--json", "Output raw JSON for programmatic use")
-  .action(async (options) => {
-    await coverageCommand({
-      openapi: options.openapi,
-      dir: options.dir,
-      json: options.json,
-    });
-  });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// context command
-// ─────────────────────────────────────────────────────────────────────────────
-cli
-  .command("context", "Generate AI-optimized context file")
-  .option("--openapi <path:string>", "Path to OpenAPI spec file")
-  .option("-d, --dir <path:string>", "Project root", { default: "." })
-  .option(
-    "--out <path:string>",
-    "Output path (default: .glubean/ai-context.md)",
-  )
-  .action(async (options) => {
-    await contextCommand({
-      openapi: options.openapi,
-      dir: options.dir,
-      out: options.out,
-    });
-  });
-
-// ─────────────────────────────────────────────────────────────────────────────
 // login command
 // ─────────────────────────────────────────────────────────────────────────────
 cli
@@ -340,6 +285,27 @@ cli
       token: options.token,
       project: options.project,
       apiUrl: options.apiUrl,
+    });
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// patch command
+// ─────────────────────────────────────────────────────────────────────────────
+cli
+  .command(
+    "patch <spec:string>",
+    "Merge an OpenAPI spec with its .patch.yaml and write the complete spec",
+  )
+  .option("--patch <file:string>", "Path to patch file (auto-discovered if omitted)")
+  .option("-o, --output <file:string>", "Output file path (default: <name>.patched.json)")
+  .option("--stdout", "Write to stdout instead of file")
+  .option("--format <fmt:string>", 'Output format: "json" or "yaml" (default: same as input)')
+  .action(async (options, spec: string) => {
+    await patchCommand(spec, {
+      patch: options.patch,
+      output: options.output,
+      stdout: options.stdout,
+      format: options.format as "json" | "yaml" | undefined,
     });
   });
 

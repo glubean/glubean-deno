@@ -592,7 +592,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
         `  ${colors.yellow}⚠${colors.reset} No Git repository detected\n`,
       );
       const initGit = await promptYesNo(
-        "Initialize Git repository? (recommended — enables hooks, CI, and glubean diff)",
+        "Initialize Git repository? (recommended — enables hooks and CI)",
         true,
       );
       if (initGit) {
@@ -872,7 +872,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       `  4. Keep ${colors.cyan}CLAUDE.md${colors.reset} or ${colors.cyan}AGENTS.md${colors.reset} — delete whichever you don't need`,
     );
     console.log(
-      `  5. Run ${colors.cyan}glubean context${colors.reset} to generate AI context\n`,
+      `  5. Drop your OpenAPI spec in ${colors.cyan}context/${colors.reset} for AI-assisted test writing\n`,
     );
   }
 }
