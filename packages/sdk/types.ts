@@ -1184,20 +1184,38 @@ export type ReservedConfigureKeys = "vars" | "secrets" | "http";
 // =============================================================================
 
 /**
- * Promise returned by HTTP client methods.
- * Extends native `Promise<Response>` with convenience body-parsing methods.
+ * Response object returned when awaiting HTTP client methods.
+ * Extends native `Response` with a typed `.json<T>()` method so you can
+ * assert on status first, then parse with a type parameter:
  *
- * @example Parse JSON response
+ * ```ts
+ * const res = await ctx.http.post(url, { json: body });
+ * ctx.expect(res).toHaveStatus(200);
+ * const data = await res.json<{ id: string }>();
+ * ```
+ */
+export interface HttpResponse extends Response {
+  /** Parse response body as JSON with optional type parameter */
+  json<T = unknown>(): Promise<T>;
+}
+
+/**
+ * Promise returned by HTTP client methods.
+ * Extends native `Promise<HttpResponse>` with convenience body-parsing methods.
+ *
+ * @example Chain directly
  * ```ts
  * const users = await ctx.http.get(`${baseUrl}/users`).json<User[]>();
  * ```
  *
- * @example Parse text response
+ * @example Await first, then parse (for asserting status before body)
  * ```ts
- * const html = await ctx.http.get(`${baseUrl}/page`).text();
+ * const res = await ctx.http.get(`${baseUrl}/users`);
+ * ctx.expect(res).toHaveStatus(200);
+ * const users = await res.json<User[]>();
  * ```
  */
-export interface HttpResponsePromise extends Promise<Response> {
+export interface HttpResponsePromise extends Promise<HttpResponse> {
   /** Parse response body as JSON */
   json<T = unknown>(): Promise<T>;
   /** Parse response body as text */
