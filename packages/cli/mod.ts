@@ -5,6 +5,10 @@
  * argument validation, and shell completions.
  */
 
+// Support running from outside workspace (e.g. shell alias with GLUBEAN_CWD)
+const _cwd = Deno.env.get("GLUBEAN_CWD");
+if (_cwd) Deno.chdir(_cwd);
+
 import { Command, EnumType } from "@cliffy/command";
 import { initCommand } from "./commands/init.ts";
 import { runCommand } from "./commands/run.ts";
@@ -17,6 +21,7 @@ import { workerCommand } from "./commands/worker.ts";
 import { upgradeCommand } from "./commands/upgrade.ts";
 import { loginCommand } from "./commands/login.ts";
 import { patchCommand } from "./commands/patch.ts";
+import { specSplitCommand } from "./commands/spec_split.ts";
 import { CLI_VERSION } from "./version.ts";
 import { abortUpdateCheck, checkForUpdates } from "./update_check.ts";
 
@@ -308,6 +313,27 @@ cli
       format: options.format as "json" | "yaml" | undefined,
     });
   });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// spec command (with subcommands)
+// ─────────────────────────────────────────────────────────────────────────────
+const specCmd = new Command()
+  .description("OpenAPI spec tools")
+  .action(() => {
+    specCmd.showHelp();
+  });
+
+specCmd
+  .command(
+    "split <spec:string>",
+    "Dereference $refs and split spec into per-endpoint files for AI",
+  )
+  .option("-o, --output <dir:string>", "Output directory (default: <name>-endpoints/ next to spec)")
+  .action(async (options, spec: string) => {
+    await specSplitCommand(spec, { output: options.output });
+  });
+
+cli.command("spec", specCmd);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // upgrade command

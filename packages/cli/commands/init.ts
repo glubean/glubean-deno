@@ -796,6 +796,11 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       content: () => readCliTemplate("AI-INSTRUCTIONS.md"),
       description: "AI instructions (Codex, other agents)",
     },
+    {
+      path: ".claude/skills/gb/SKILL.md",
+      content: () => readCliTemplate("claude-skill-glubean-test.md"),
+      description: "Claude Code skill — /gb test generator",
+    },
   ];
 
   if (enableHooks) {
@@ -987,6 +992,11 @@ async function initMinimal(overwrite: boolean): Promise<void> {
       path: "AGENTS.md",
       content: () => readCliTemplate("AI-INSTRUCTIONS.md"),
       description: "AI instructions (Codex, other agents)",
+    },
+    {
+      path: ".claude/skills/gb/SKILL.md",
+      content: () => readCliTemplate("claude-skill-glubean-test.md"),
+      description: "Claude Code skill — /gb test generator",
     },
   ];
 
